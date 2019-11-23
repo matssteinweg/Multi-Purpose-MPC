@@ -295,11 +295,11 @@ class SimpleBicycleModel(SpatialBicycleModel):
 
         return s_dot, psi_dot, v_dot
 
-    def get_spatial_derivatives(self, delta, D):
+    def get_spatial_derivatives(self, D, delta):
         """
         Compute spatial derivatives of all state variables for update.
-        :param delta: steering angle | [rad]
         :param D: duty-cycle of DC motor | [-1, 1]
+        :param delta: steering angle | [rad]
         :return: numpy array with spatial derivatives for all state variables
         """
 
