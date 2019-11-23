@@ -8,61 +8,82 @@ from time import time
 
 if __name__ == '__main__':
 
+    # Select Simulation Mode | 'Race' or 'Q'
+    sim_mode = 'Race'
+    # Select Model Type | 'Simple' or 'Extended'
+    model_type = 'Simple'
+
     # Create Map
-    map = Map(file_path='map_race.png', origin=[-1, -2], resolution=0.005)
-    #map = Map(file_path='map_floor2.png')
+    if sim_mode == 'Race':
+        map = Map(file_path='map_race.png', origin=[-1, -2], resolution=0.005)
+        # Specify waypoints
+        wp_x = [-0.75, -0.25, -0.25, 0.25, 0.25, 1.25, 1.25, 0.75, 0.75, 1.25,
+                1.25, -0.75, -0.75, -0.25]
+        wp_y = [-1.5, -1.5, -0.5, -0.5, -1.5, -1.5, -1, -1, -0.5, -0.5, 0, 0,
+                -1.5, -1.5]
+        # Specify path resolution
+        path_resolution = 0.05  # m / wp
+    elif sim_mode == 'Q':
+        map = Map(file_path='map_floor2.png')
+        wp_x = [-9.169, 11.9, 7.3, -6.95]
+        wp_y = [-15.678, 10.9, 14.5, -3.31]
+        # Specify path resolution
+        path_resolution = 0.20  # m / wp
+    else:
+        print('Invalid Simulation Mode!')
+        map, wp_x, wp_y, path_resolution = None, None, None, None
+        exit(1)
 
-    # Specify waypoints
-    wp_x = [-0.75, -0.25, -0.25, 0.25, 0.25, 1.25, 1.25, 0.75, 0.75, 1.25,
-            1.25, -0.75, -0.75, -0.25]
-    wp_y = [-1.5, -1.5, -0.5, -0.5, -1.5, -1.5, -1, -1, -0.5, -0.5, 0, 0, -1.5,
-            -1.5]
-    #wp_x = [-9.169, 11.9, 7.3, -6.95]
-    #wp_y = [-15.678, 10.9, 14.5, -3.31]
-
-    # Specify path resolution
-    path_resolution = 0.05  # m / wp
-
-    # Smooth Path
+    # Create smoothed reference path
     reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
                                    smoothing_distance=5)
-    rx = [wp.x for wp in reference_path.waypoints]
-    ry = [wp.y for wp in reference_path.waypoints]
 
     ################
     # Motion Model #
     ################
 
-    # initial state
+    # Initial state
     e_y_0 = 0.0
     e_psi_0 = 0.0
-    v_x_0 = 0.3
+    v_x_0 = 0.1
     v_y_0 = 0
     omega_0 = 0
     t_0 = 0
 
-    # initialize car
-    car = SimpleBicycleModel(reference_path=reference_path,
+    if model_type == 'Extended':
+        car = ExtendedBicycleModel(reference_path=reference_path,
+                             e_y=e_y_0, e_psi=e_psi_0, v_x=v_x_0, v_y=v_y_0,
+                               omega=omega_0, t=t_0)
+    elif model_type == 'Simple':
+        car = SimpleBicycleModel(reference_path=reference_path,
                                 e_y=e_y_0, e_psi=e_psi_0, v=v_x_0)
-    #car = ExtendedBicycleModel(reference_path=reference_path,
-    #                         e_y=e_y_0, e_psi=e_psi_0, v_x=v_x_0, v_y=v_y_0,
-    #                           omega=omega_0, t=t_0)
+    else:
+        car = None
+        print('Invalid Model Type!')
+        exit(1)
 
     ##############
     # Controller #
     ##############
 
-    # path tracker
-    T = 10
-    Q = np.diag([0.1, 0.001, 0.1])
-    Qf = Q
-    #Q = np.diag([1, 0, 0, 0, 0, 0])
-    #Qf = Q
-    R = np.diag([0, 0])
-    StateConstraints = {'e_y': (-0.1, 0.1), 'v': (0, 4)}
+    if model_type == 'Extended':
+        Q = np.diag([1, 0, 0, 0, 0, 0])
+        Qf = Q
+        R = np.diag([0, 0])
+        Reference = {'e_y': 0, 'e_psi': 0, 'v_x': 1.0, 'v_y': 0, 'omega': 0, 't':0}
+    elif model_type == 'Simple':
+        Reference = {'e_y': 0, 'e_psi': 0, 'v': 4.0}
+        Q = np.diag([0.0005, 0.05, 0.5])
+        Qf = Q
+        R = np.diag([0, 0])
+    else:
+        Q, Qf, R, Reference = None, None, None, None
+        print('Invalid Model Type!')
+        exit(1)
+
+    T = 5
+    StateConstraints = {'e_y': (-0.2, 0.2), 'v': (0, 4)}
     InputConstraints = {'D': (-1, 1), 'delta': (-0.44, 0.44)}
-    Reference = {'e_y': 0, 'e_psi': 0, 'v': 4.0}
-    #Reference = {'e_y': 0, 'e_psi': 0, 'v_x': 1.0, 'v_y': 0, 'omega': 0, 't':0}
     mpc = MPC(car, T, Q, R, Qf, StateConstraints, InputConstraints, Reference)
 
     ##############
@@ -77,18 +98,14 @@ if __name__ == '__main__':
     D_log = []
     delta_log = []
 
-    start_time = time()
-
     # iterate over waypoints
     for wp_id in range(len(car.reference_path.waypoints)-T-1):
-
-        print('V: {:.2f}'.format(car.temporal_state.v_x))
 
         # get control signals
         D, delta = mpc.get_control()
 
         # drive car
-        car.drive(delta, D)
+        car.drive(D, delta)
 
         # log current state
         x_log.append(car.temporal_state.x)
@@ -119,6 +136,4 @@ if __name__ == '__main__':
         plt.yticks([])
         plt.pause(0.0000001)
 
-    end_time = time()
-    print('Time Elapsed: {:.2f} s'.format(end_time-start_time))
     plt.close()
