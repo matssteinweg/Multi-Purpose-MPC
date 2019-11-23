@@ -1,7 +1,4 @@
 import numpy as np
-import math
-import time
-import cvxpy as cp
 from abc import ABC, abstractmethod
 
 
@@ -10,9 +7,9 @@ from abc import ABC, abstractmethod
 #########################
 
 class TemporalState:
-    def __init__(self, x, y, psi, v_x=0, v_y=0):
+    def __init__(self, x, y, psi, v_x, v_y):
         """
-        Temporal State Vector containing x, y coordinates and heading psi
+        Temporal State Vector containing car pose (x, y, psi) and velocity
         :param x: x position in global coordinate system | [m]
         :param y: y position in global coordinate system | [m]
         :param psi: yaw angle | [rad]
@@ -31,6 +28,10 @@ class TemporalState:
 ########################
 
 class SpatialState(ABC):
+    """
+    Spatial State Vector - Abstract Base Class.
+    """
+
     @abstractmethod
     def __init__(self):
         pass
@@ -41,19 +42,28 @@ class SpatialState(ABC):
     def __len__(self):
         return len(vars(self))
 
-    def list_states(self):
-        return list(vars(self).keys())
-
     def __iadd__(self, other):
+        """
+        Overload Sum-Add operator.
+        :param other: numpy array to be added to state vector
+        """
+
         for state_id, state in enumerate(vars(self).values()):
             vars(self)[list(vars(self).keys())[state_id]] += other[state_id]
         return self
+
+    def list_states(self):
+        """
+        Return list of names of all states.
+        """
+        return list(vars(self).keys())
 
 
 class SimpleSpatialState(SpatialState):
     def __init__(self, e_y, e_psi, v):
         """
-        Temporal State Vector containing x, y coordinates and heading psi
+        Simplified Spatial State Vector containing orthogonal deviation from
+        reference path (e_y), difference in orientation (e_psi) and velocity
         :param e_y: orthogonal deviation from center-line | [m]
         :param e_psi: yaw angle relative to path | [rad]
         :param v: absolute velocity | [m/s]
@@ -68,10 +78,14 @@ class SimpleSpatialState(SpatialState):
 class ExtendedSpatialState(SpatialState):
     def __init__(self, e_y, e_psi, v_x, v_y, omega, t):
         """
-        Temporal State Vector containing x, y coordinates and heading psi
+        Extended Spatial State Vector containing separate velocities in x and
+        y direction, angular velocity and time
         :param e_y: orthogonal deviation from center-line | [m]
         :param e_psi: yaw angle relative to path | [rad]
-        :param v: absolute velocity | [m/s]
+        :param v_x: velocity in x direction (car frame) | [m/s]
+        :param v_y: velocity in y direction (car frame) | [m/s]
+        :param omega: anglular velocity of the car | [rad/s]
+        :param t: simulation time| [s]
         """
         super(ExtendedSpatialState, self).__init__()
 
@@ -90,8 +104,8 @@ class ExtendedSpatialState(SpatialState):
 class SpatialBicycleModel(ABC):
     def __init__(self, reference_path):
         """
-        Construct spatial bicycle model.
-        :param reference_path: reference path model is supposed to follow
+        Abstract Base Class for Spatial Reformulation of Bicycle Model.
+        :param reference_path: reference path object to follow
         """
 
         # Precision
@@ -100,28 +114,34 @@ class SpatialBicycleModel(ABC):
         # Reference Path
         self.reference_path = reference_path
 
-        # set initial distance traveled
+        # Set initial distance traveled
         self.s = 0.0
 
-        # set initial waypoint ID
+        # Set initial waypoint ID
         self.wp_id = 0
 
-        # set initial waypoint
+        # Set initial waypoint
         self.current_waypoint = self.reference_path.waypoints[self.wp_id]
 
-        # initialize spatial state
+        # Declare spatial state variable | Initialization in sub-class
         self.spatial_state = None
 
-    def s2t(self, reference_waypoint=None, predicted_state=None):
+        # Declare temporal state variable | Initialization in sub-class
+        self.temporal_state = None
+
+        # Declare system matrices of linearized model | Used for MPC
+        self.A, self.B = None, None
+
+    def s2t(self, reference_waypoint=None, reference_state=None):
         """
-        Convert spatial state to temporal state. Either convert self.spatial
+        Convert spatial state to temporal state. Either convert self.spatial_
         state with current waypoint as reference or provide reference waypoint
-        and (e_y, e_psi).
+        and reference_state.
         :return x, y, psi
         """
 
         # Compute spatial state for current waypoint if no waypoint given
-        if reference_waypoint is None and predicted_state is None:
+        if reference_waypoint is None and reference_state is None:
 
             # compute temporal state variables
             x = self.current_waypoint.x - self.spatial_state.e_y * np.sin(
@@ -133,52 +153,53 @@ class SpatialBicycleModel(ABC):
         else:
 
             # compute temporal state variables
-            x = reference_waypoint.x - predicted_state[0] * np.sin(
+            x = reference_waypoint.x - reference_state[0] * np.sin(
                 reference_waypoint.psi)
-            y = reference_waypoint.y + predicted_state[0] * np.cos(
+            y = reference_waypoint.y + reference_state[0] * np.cos(
                 reference_waypoint.psi)
-            psi = reference_waypoint.psi + predicted_state[1]
+            psi = reference_waypoint.psi + reference_state[1]
 
         return x, y, psi
 
-    def drive(self, delta, D):
+    def drive(self, D, delta):
         """
-        Update states of spatial bicycle model.
-        :param delta: angular velocity | [rad]
+        Update states of spatial bicycle model. Model drive to the next
+        waypoint on the reference path.
         :param D: acceleration command | [-1, 1]
+        :param delta: angular velocity | [rad]
         """
 
-        # get spatial derivatives
-        spatial_derivatives = self.get_spatial_derivatives(delta, D)
+        # Get spatial derivatives
+        spatial_derivatives = self.get_spatial_derivatives(D, delta)
 
-        # get delta_s
+        # Get delta_s | distance to next waypoint
         next_waypoint = self.reference_path.waypoints[self.wp_id+1]
         delta_s = next_waypoint - self.current_waypoint
 
-        # update spatial state (euler method)
+        # Update spatial state (Forward Euler Approximation)
         self.spatial_state += spatial_derivatives * delta_s
 
-        # assert that unique projections exists
+        # Assert that unique projections of car pose onto path exists
         assert self.spatial_state.e_y < (1 / (self.current_waypoint.kappa +
                                               self.eps))
 
-        # increase waypoint ID
+        # Increase waypoint ID
         self.wp_id += 1
 
-        # update current waypoint
+        # Update current waypoint
         self.current_waypoint = self.reference_path.waypoints[self.wp_id]
 
-        # update temporal_state to match spatial state
+        # Update temporal_state to match spatial state
         self.temporal_state = self.s2t()
 
-        # update s
+        # Update s | total driven distance along path
         self.s += delta_s
 
-        # linearize model around new operating point
+        # Linearize model around new operating point
         self.A, self.B = self.linearize()
 
     @abstractmethod
-    def get_spatial_derivatives(self, delta, D):
+    def get_spatial_derivatives(self, D, delta):
         pass
 
     @abstractmethod
@@ -193,12 +214,15 @@ class SpatialBicycleModel(ABC):
 class SimpleBicycleModel(SpatialBicycleModel):
     def __init__(self, reference_path, e_y, e_psi, v):
         """
-        Construct spatial bicycle model.
-        :param e_y: initial deviation from reference path | [m]
-        :param e_psi: initial heading offset from reference path | [rad]
-        :param v: initial velocity | [m/s]
+        Simplified Spatial Bicycle Model. Spatial Reformulation of Kinematic
+        Bicycle Model. Uses Simplified Spatial State.
         :param reference_path: reference path model is supposed to follow
+        :param e_y: deviation from reference path | [m]
+        :param e_psi: heading offset from reference path | [rad]
+        :param v: initial velocity | [m/s]
         """
+
+        # Initialize base class
         super(SimpleBicycleModel, self).__init__(reference_path)
 
         # Constants
@@ -209,221 +233,224 @@ class SimpleBicycleModel(SpatialBicycleModel):
         self.Cr2 = 0.1
         self.Cr0 = 0.6
 
-        # Spatial state
+        # Initialize spatial state
         self.spatial_state = SimpleSpatialState(e_y, e_psi, v)
 
-        # Temporal state
+        # Initialize temporal state
         self.temporal_state = self.s2t()
 
-        # Linear System Matrices
+        # Compute linear system matrices | Used for MPC
         self.A, self.B = self.linearize()
 
-    def s2t(self, reference_waypoint=None, predicted_state=None):
+    def s2t(self, reference_waypoint=None, reference_state=None):
         """
-        Convert spatial state to temporal state
-        :return temporal state equivalent to self.spatial_state
+        Convert spatial state to temporal state. Either convert self.spatial_
+        state with current waypoint as reference or provide reference waypoint
+        and reference_state.
+        :return temporal state equivalent to self.spatial_state or provided
+        reference state
         """
 
-        # compute velocity information
-        if predicted_state is None and reference_waypoint is None:
-            # get information from base class
+        if reference_state is None and reference_waypoint is None:
+            # Get pose information from base class implementation
             x, y, psi = super(SimpleBicycleModel, self).s2t()
+            # Compute simplified velocities
             v_x = self.spatial_state.v
             v_y = 0
         else:
-            # get information from base class
+            # Get pose information from base class implementation
             x, y, psi = super(SimpleBicycleModel, self).s2t(reference_waypoint,
-                                                            predicted_state)
-            v_x = predicted_state[2]
+                                                            reference_state)
+            v_x = reference_state[2]
             v_y = 0
 
         return TemporalState(x, y, psi, v_x, v_y)
 
-    def get_velocities(self, delta):
+    def get_temporal_derivatives(self, D, delta):
         """
-        Compute relevant velocity components for current update.
-        :param delta: steering command
-        :return: velocities in x, y and waypoint direction
-        """
-
-        # approximation for small delta
-        v_x = self.spatial_state.v
-        v_y = self.spatial_state.v * delta * self.C1
-
-        # velocity along waypoint direction
-        v_sigma = v_x * np.cos(self.spatial_state.e_psi) - v_y * np.sin(
-            self.spatial_state.e_psi)
-
-        return v_x, v_y, v_sigma
-
-    def get_temporal_derivatives(self, v_sigma, delta, D):
-        """
-        Compute temporal derivatives needed for state update.
-        :param v_sigma: velocity along the path
-        :param delta: steering command
-        :param D: dutycycle of DC motor
+        Compute relevant temporal derivatives needed for state update.
+        :param D: duty-cycle of DC motor | [-1, 1]
+        :param delta: steering command | [rad]
         :return: temporal derivatives of distance, angle and velocity
         """
 
-        # velocity along path
+        # Compute velocity components | Approximation for small delta
+        v_x = self.spatial_state.v
+        v_y = self.spatial_state.v * delta * self.C1
+
+        # Compute velocity along waypoint direction
+        v_sigma = v_x * np.cos(self.spatial_state.e_psi) - v_y * np.sin(
+            self.spatial_state.e_psi)
+
+        # Compute velocity along path
         s_dot = 1 / (1 - (self.spatial_state.e_y * self.current_waypoint.kappa)) * v_sigma
 
-        # angle rate of change
+        # Compute yaw angle rate of change
         psi_dot = self.spatial_state.v * delta * self.C2
 
-        # acceleration
+        # Compute acceleration
         v_dot = (self.Cm1 - self.Cm2 * self.spatial_state.v) * D - self.Cr2 * (
                 self.spatial_state.v ** 2) - self.Cr0 - (
-                        self.spatial_state.v * delta) ** 2 * self.C2 * self.C1 ** 2
+                self.spatial_state.v * delta) ** 2 * self.C2 * self.C1 ** 2
 
         return s_dot, psi_dot, v_dot
 
     def get_spatial_derivatives(self, delta, D):
         """
         Compute spatial derivatives of all state variables for update.
-        :param delta: steering angle
-        :param D: duty-cycle
-        :return: spatial derivatives for all state variables
+        :param delta: steering angle | [rad]
+        :param D: duty-cycle of DC motor | [-1, 1]
+        :return: numpy array with spatial derivatives for all state variables
         """
 
-        # Compute velocities
-        v_x, v_y, v_sigma = self.get_velocities(delta)
+        # Compute temporal derivatives
+        s_dot, psi_dot, v_dot = self.get_temporal_derivatives(D, delta)
 
-        # Compute state derivatives
-        s_dot, psi_dot, v_dot = self.get_temporal_derivatives(v_sigma, delta,
-                                                              D)
-
-        d_e_y = (self.spatial_state.v * np.sin(self.spatial_state.e_psi)
+        # Compute spatial derivatives
+        d_e_y_d_s = (self.spatial_state.v * np.sin(self.spatial_state.e_psi)
                  + self.spatial_state.v * delta * self.C1 * np.cos(
-                    self.spatial_state.e_psi)) \
-                / (s_dot + self.eps)
-        d_e_psi = (psi_dot / (s_dot + self.eps) - self.current_waypoint.kappa)
-        d_v = v_dot / (s_dot + self.eps)
-        d_t = 1 / (s_dot + self.eps)
+                    self.spatial_state.e_psi)) / s_dot
+        d_e_psi_d_s = psi_dot / s_dot - self.current_waypoint.kappa
+        d_v_d_s = v_dot / s_dot
 
-        return np.array([d_e_y, d_e_psi, d_v])
+        return np.array([d_e_y_d_s, d_e_psi_d_s, d_v_d_s])
 
-    def linearize(self, delta=0, D=0):
+    def linearize(self, D=0, delta=0):
         """
         Linearize the system equations around the current state and waypoint.
-        :param delta: reference steering angle
-        :param D: reference duty-cycle
+        :param delta: reference steering angle | [rad]
+        :param D: reference duty-cycle of DC-motor | [-1, 1]
         """
 
-        # get current state
+        # Get current state | operating point to linearize around
         e_y = self.spatial_state.e_y
         e_psi = self.spatial_state.e_psi
         v = self.spatial_state.v
 
-        # get information about current waypoint
+        # Get curvature of current waypoint
         kappa = self.reference_path.waypoints[self.wp_id].kappa
 
-        # get delta_s
+        # Get delta_s
         next_waypoint = self.reference_path.waypoints[self.wp_id+1]
         delta_s = next_waypoint - self.current_waypoint
-
-        # set helper variables
-        v_x = v
-        v_y = v * delta * self.C1
 
         ##############################
         # Helper Partial Derivatives #
         ##############################
 
+        # Compute velocity components
+        v_x = v
+        v_y = v * delta * self.C1
+
+        # Compute partial derivatives of s_dot w.r.t. each state variable,
+        # input variable and kappa
         s_dot = 1 / (1 - e_y*kappa) * (v_x * np.cos(e_psi) - v_y * np.sin(e_psi))
         d_s_dot_d_e_y = kappa / (1-e_y*kappa)**2 * (v_x * np.cos(e_psi) - v_y * np.sin(e_psi))
         d_s_dot_d_e_psi = 1 / (1 - e_y*kappa) * (-v_x * np.sin(e_psi) - v_y * np.cos(e_psi))
         d_s_dot_d_v = 1 / (1 - e_y*kappa) * (np.cos(e_psi) - delta * self.C1 * np.sin(e_psi))
-        d_s_dot_d_t = 0
+        # d_s_dot_d_D = 0
         d_s_dot_d_delta = 1 / (1 - e_y*kappa) * (- v * self.C1 * np.sin(e_psi))
-        d_s_dot_d_D = 0
         d_s_dot_d_kappa = e_y / (1-e_y*kappa)**2 * (v_x * np.cos(e_psi) - v_y * np.sin(e_psi))
-        # Check
 
-        c_1 = (v_x * np.sin(e_psi) + v_y * np.cos(e_psi))
-        d_c_1_d_e_y = 0
-        d_c_1_d_e_psi = v_x * np.cos(e_psi) - v_y * np.sin(e_psi)
-        d_c_1_d_v = np.sin(e_psi) + self.C1 * delta * np.cos(e_psi)
-        d_c_1_d_t = 0
-        d_c_1_d_delta = self.C1 * v * np.cos(e_psi)
-        d_c_1_d_D = 0
-        # Check
+        # Compute partial derivatives of v_psi w.r.t. each state variable,
+        # input variable and kappa
+        v_psi = (v_x * np.sin(e_psi) + v_y * np.cos(e_psi))
+        # d_v_psi_d_e_y = 0
+        d_v_psi_d_e_psi = v_x * np.cos(e_psi) - v_y * np.sin(e_psi)
+        d_v_psi_d_v = np.sin(e_psi) + self.C1 * delta * np.cos(e_psi)
+        # d_v_psi_d_D = 0
+        d_v_psi_d_delta = self.C1 * v * np.cos(e_psi)
+        # d_v_psi_d_kappa = 0
 
+        # Compute partial derivatives of psi_dot w.r.t. each state variable,
+        # input variable and kappa
         psi_dot = v * delta * self.C2
-        d_psi_dot_d_e_y = 0
-        d_psi_dot_d_e_psi = 0
+        # d_psi_dot_d_e_y = 0
+        # d_psi_dot_d_e_psi = 0
         d_psi_dot_d_v = delta * self.C2
-        d_psi_dot_d_t = 0
+        # d_psi_dot_d_D = 0
         d_psi_dot_d_delta = v * self.C2
-        d_psi_dot_d_D = 0
-        # Check
+        # d_psi_dot_d_kappa = 0
 
-        v_dot = (self.Cm1 - self.Cm2 * v) * D - self.Cr2 * (v ** 2) - self.Cr0 - (
-                        v * delta) ** 2 * self.C2 * (self.C1 ** 2)
-        d_v_dot_d_e_y = 0
-        d_v_dot_d_e_psi = 0
-        d_v_dot_d_v = -self.Cm2 * D - 2 * self.Cr2 * v - 2 * v * (delta ** 2) * self.C2 * (self.C1 ** 2)
-        d_v_dot_d_t = 0
-        d_v_dot_d_delta = -2 * (v ** 2) * delta * self.C2 * self.C1 ** 2
+        # Compute partial derivatives of v_dot w.r.t. each state variable,
+        # input variable and kappa
+        v_dot = (self.Cm1 - self.Cm2 * v) * D - self.Cr2 * (v ** 2) - self.Cr0 \
+                - (v * delta) ** 2 * self.C2 * (self.C1 ** 2)
+        # d_v_dot_d_e_y = 0
+        # d_v_dot_d_e_psi = 0
+        d_v_dot_d_v = -self.Cm2 * D - 2 * self.Cr2 * v - 2 * v * (delta ** 2) \
+                      * self.C2 * (self.C1 ** 2)
         d_v_dot_d_D = self.Cm1 - self.Cm2 * v
-        # Check
+        d_v_dot_d_delta = -2 * (v ** 2) * delta * self.C2 * self.C1 ** 2
+        # d_v_dot_d_kappa = 0
 
-        #######################
-        # Partial Derivatives #
-        #######################
+        #############################
+        # State Partial Derivatives #
+        #############################
 
-        # derivatives for E_Y
-        d_e_y_d_e_y = -c_1 * d_s_dot_d_e_y / (s_dot**2)
-        d_e_y_d_e_psi = (d_c_1_d_e_psi * s_dot - d_s_dot_d_e_psi * c_1) / (s_dot**2)
-        d_e_y_d_v = (d_c_1_d_v * s_dot - d_s_dot_d_v * c_1) / (s_dot**2)
-        d_e_y_d_t = 0
+        # Use pre-computed helper derivatives to compute spatial derivatives of
+        # all state variables using Quotient Rule
+
+        # Compute partial derivatives of e_y w.r.t. each state variable,
+        # input variable and kappa
+        # e_y = v_psi / s_dot
+        d_e_y_d_e_y = - d_s_dot_d_e_y * v_psi / (s_dot**2)
+        d_e_y_d_e_psi = (d_v_psi_d_e_psi * s_dot - d_s_dot_d_e_psi * v_psi) / (s_dot**2)
+        d_e_y_d_v = (d_v_psi_d_v * s_dot - d_s_dot_d_v * v_psi) / (s_dot**2)
         d_e_y_d_D = 0
-        d_e_y_d_delta = (d_c_1_d_delta * s_dot - d_s_dot_d_delta * c_1) / (s_dot**2)
-        d_e_y_d_kappa = -d_s_dot_d_kappa * c_1 / (s_dot**2)
+        d_e_y_d_delta = (d_v_psi_d_delta * s_dot - d_s_dot_d_delta * v_psi) / (s_dot**2)
+        d_e_y_d_kappa = - d_s_dot_d_kappa * v_psi / (s_dot**2)
 
-        # derivatives for E_PSI
-        d_e_psi_d_e_y = - psi_dot * d_s_dot_d_e_y / (s_dot**2)
-        d_e_psi_d_e_psi = - psi_dot * d_s_dot_d_e_psi / (s_dot**2)
-        d_e_psi_d_v = (d_psi_dot_d_v * s_dot - psi_dot * d_s_dot_d_v) / (s_dot**2)
-        d_e_psi_d_t = 0
-        d_e_psi_d_delta = (d_psi_dot_d_delta * s_dot - psi_dot * d_s_dot_d_delta) / (s_dot**2)
+        # Compute partial derivatives of e_psi w.r.t. each state variable,
+        # input variable and kappa
+        # e_psi = psi_dot / s_dot - kappa
+        d_e_psi_d_e_y = - d_s_dot_d_e_y * psi_dot / (s_dot**2)
+        d_e_psi_d_e_psi = - d_s_dot_d_e_psi * psi_dot / (s_dot**2)
+        d_e_psi_d_v = (d_psi_dot_d_v * s_dot - d_s_dot_d_v * psi_dot) / (s_dot**2)
         d_e_psi_d_D = 0
-        d_e_psi_d_kappa = -d_s_dot_d_kappa * psi_dot / (s_dot**2) - 1
+        d_e_psi_d_delta = (d_psi_dot_d_delta * s_dot - d_s_dot_d_delta * psi_dot) / (s_dot**2)
+        d_e_psi_d_kappa = - d_s_dot_d_kappa * psi_dot / (s_dot**2) - 1
 
-        # derivatives for V
+        # Compute partial derivatives of v w.r.t. each state variable,
+        # input variable and kappa
+        # v = v_dot / s_dot
         d_v_d_e_y = - d_s_dot_d_e_y * v_dot / (s_dot**2)
         d_v_d_e_psi = - d_s_dot_d_e_psi * v_dot / (s_dot**2)
         d_v_d_v = (d_v_dot_d_v * s_dot - d_s_dot_d_v * v_dot) / (s_dot**2)
-        d_v_d_t = 0
-        d_v_d_delta = (d_v_dot_d_delta * s_dot - d_s_dot_d_delta * v_dot) / (s_dot**2)
         d_v_d_D = d_v_dot_d_D * s_dot / (s_dot**2)
-        d_v_d_kappa = -d_s_dot_d_kappa * v_dot / (s_dot**2)
+        d_v_d_delta = (d_v_dot_d_delta * s_dot - d_s_dot_d_delta * v_dot) / (s_dot**2)
+        d_v_d_kappa = - d_s_dot_d_kappa * v_dot / (s_dot**2)
 
-        # derivatives for T
-        d_t_d_e_y = - d_s_dot_d_e_y / (s_dot**2)
-        d_t_d_e_psi = - d_s_dot_d_e_psi / (s_dot ** 2)
-        d_t_d_v = - d_s_dot_d_v / (s_dot ** 2)
-        d_t_d_t = 0
-        d_t_d_delta = - d_s_dot_d_delta / (s_dot ** 2)
-        d_t_d_D = 0
-        d_t_d_kappa = - d_s_dot_d_kappa / (s_dot ** 2)
+        #############
+        # Jacobians #
+        #############
 
-        a_1 = np.array([d_e_y_d_e_y, d_e_y_d_e_psi, d_e_y_d_v, d_e_y_d_kappa]) * delta_s
-        a_2 = np.array([d_e_psi_d_e_y, d_e_psi_d_e_psi, d_e_psi_d_v, d_e_psi_d_kappa]) * delta_s
-        a_3 = np.array([d_v_d_e_y, d_v_d_e_psi, d_v_d_v, d_v_d_kappa]) * delta_s
-        a_4 = np.array([0, 0, 0, 1])
-        A = np.stack((a_1, a_2, a_3, a_4), axis=0)
-        A[0, 0] += 1
-        A[1, 1] += 1
-        A[2, 2] += 1
+        # Construct Jacobian Matrix
+        a_1 = np.array([d_e_y_d_e_y,    d_e_y_d_e_psi,      d_e_y_d_v,      d_e_y_d_kappa])
+        a_2 = np.array([d_e_psi_d_e_y,  d_e_psi_d_e_psi,    d_e_psi_d_v,    d_e_psi_d_kappa])
+        a_3 = np.array([d_v_d_e_y,      d_v_d_e_psi,        d_v_d_v,        d_v_d_kappa])
 
-        b_1 = np.array([d_e_y_d_D, d_e_y_d_delta]) * delta_s
-        b_2 = np.array([d_e_psi_d_D, d_e_psi_d_delta]) * delta_s
-        b_3 = np.array([d_v_d_D, d_v_d_delta]) * delta_s
+        b_1 = np.array([d_e_y_d_D, d_e_y_d_delta])
+        b_2 = np.array([d_e_psi_d_D, d_e_psi_d_delta])
+        b_3 = np.array([d_v_d_D, d_v_d_delta])
+
+        # Add extra row for kappa | Allows for updating kappa during MPC
+        # optimization
+        a_4 = np.array([0, 0, 0, 0])
         b_4 = np.array([0, 0])
-        B = np.stack((b_1, b_2, b_3, b_4), axis=0)
 
-        # set system matrices
+        Ja = np.stack((a_1, a_2, a_3, a_4), axis=0)
+        Jb = np.stack((b_1, b_2, b_3, b_4), axis=0)
+
+        ###################
+        # System Matrices #
+        ###################
+
+        # Construct system matrices from Jacobians. Multiply by sampling
+        # distance delta_s + add identity matrix (Forward Euler Approximation)
+        A = Ja * delta_s + np.identity(Ja.shape[1])
+        B = Jb * delta_s
+
         return A, B
 
 
@@ -770,13 +797,3 @@ class ExtendedBicycleModel(SpatialBicycleModel):
 
         # set system matrices
         return A, B
-
-
-if __name__ == '__main__':
-
-    state = ExtendedSpatialState(0, 1, 2, 3, 4, 5)
-    print(state[0:2])
-    print(len(state))
-    print(state.list_states())
-    state += np.array([1, 1, 1, 2, 1, 1])
-    print(vars(state))
