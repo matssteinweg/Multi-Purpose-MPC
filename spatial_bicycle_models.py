@@ -2,6 +2,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 import matplotlib.pyplot as plt
 import matplotlib.patches as plt_patches
+import math
 
 # Colors
 CAR = '#F1C40F'
@@ -24,6 +25,16 @@ class TemporalState:
         self.x = x
         self.y = y
         self.psi = psi
+
+    def __iadd__(self, other):
+        """
+        Overload Sum-Add operator.
+        :param other: numpy array to be added to state vector
+        """
+
+        for state_id, state in enumerate(vars(self).values()):
+            vars(self)[list(vars(self).keys())[state_id]] += other[state_id]
+        return self
 
 
 ########################
@@ -106,6 +117,9 @@ class SpatialBicycleModel(ABC):
         # Set initial distance traveled
         self.s = 0.0
 
+        # Set sampling time to None (Initialization required)
+        self.sampling_time = None
+
         # Set initial waypoint ID
         self.wp_id = 0
 
@@ -150,57 +164,57 @@ class SpatialBicycleModel(ABC):
 
         return x, y, psi
 
-    def drive(self, input, state=None, kappa=None, delta_s=None):
+    def t2s(self):
+        """
+        Convert spatial state to temporal state. Either convert self.spatial_
+        state with current waypoint as reference or provide reference waypoint
+        and reference_state.
+        :return x, y, psi
+        """
+
+        # compute temporal state variables
+        e_y = np.cos(self.current_waypoint.psi) * \
+              (self.temporal_state.y - self.current_waypoint.y) - \
+        np.sin(self.current_waypoint.psi) * (self.temporal_state.x -
+                                             self.current_waypoint.x)
+        e_psi = self.temporal_state.psi - self.current_waypoint.psi
+        e_psi = np.mod(e_psi + math.pi, 2*math.pi) - math.pi
+        t = 0
+
+        return SimpleSpatialState(e_y, e_psi, t)
+
+    def set_sampling_time(self, Ts):
+        """
+        Set sampling time of bicycle model.
+        :param Ts: sampling time in s
+        """
+        self.Ts = Ts
+
+    def drive(self, u):
         """
         Drive.
-        :param state: state vector for which to compute derivatives
-        :param input: input vector
-        :param kappa: curvature of corresponding waypoint
+        :param u: input vector
         :return: numpy array with spatial derivatives for all state variables
         """
 
-        # Get spatial derivatives
-        if state is None and kappa is None and delta_s is None:
-            state = np.array(self.spatial_state[:])
-            # Get delta_s | distance to next waypoint
-            next_waypoint = self.reference_path.waypoints[self.wp_id + 1]
-            delta_s = next_waypoint - self.current_waypoint
-            # Get current curvature
-            kappa = self.current_waypoint.kappa
+        # Get input signals
+        v, delta = u
 
-            spatial_derivatives = self.get_spatial_derivatives(state, input, kappa)
+        # Compute temporal state derivatives
+        x_dot = v * np.cos(self.temporal_state.psi)
+        y_dot = v * np.sin(self.temporal_state.psi)
+        psi_dot = v / self.l * np.tan(delta)
+        temporal_derivatives = np.array([x_dot, y_dot, psi_dot])
 
-            # Update spatial state (Forward Euler Approximation)
-            self.spatial_state += spatial_derivatives * delta_s
+        # Update spatial state (Forward Euler Approximation)
+        self.temporal_state += temporal_derivatives * self.Ts
 
-            # Assert that unique projections of car pose onto path exists
-            #assert self.spatial_state.e_y < (1 / (self.current_waypoint.kappa +
-             #                                     self.eps))
+        # Compute velocity along path
+        s_dot = 1 / (1 - self.spatial_state.e_y * self.current_waypoint.kappa) \
+                * v * np.cos(self.spatial_state.e_psi)
 
-            # Increase waypoint ID
-            self.wp_id += 1
-
-            # Update current waypoint
-            self.current_waypoint = self.reference_path.waypoints[self.wp_id]
-
-            # Update temporal_state to match spatial state
-            self.temporal_state = self.s2t()
-
-            # Update s | total driven distance along path
-            self.s += delta_s
-
-            # Linearize model around new operating point
-            # self.A, self.B = self.linearize()
-
-        else:
-
-            spatial_derivatives = self.get_spatial_derivatives(state, input,
-                                                               kappa)
-
-            # Update spatial state (Forward Euler Approximation)
-            state += spatial_derivatives * delta_s
-
-            return state
+        # Update distance travelled along reference path
+        self.s += s_dot * self.Ts
 
     def _compute_safety_margin(self):
         """
@@ -212,6 +226,45 @@ class SpatialBicycleModel(ABC):
         width = self.w / np.sqrt(2)
 
         return length, width
+
+    def get_current_waypoint(self):
+        """
+        Create waypoint on reference path at current location of car by
+        interpolation information from given path waypoints.
+        """
+
+        # Compute cumulative path length
+        length_cum = np.cumsum(self.reference_path.segment_lengths)
+        # Get first index with distance larger than distance traveled by car
+        # so far
+        greater_than_threshold = length_cum > self.s
+        next_wp_id = greater_than_threshold.searchsorted(True)
+        # Get previous index for interpolation
+        prev_wp_id = next_wp_id - 1
+
+        # Get distance traveled for both enclosing waypoints
+        s_next = length_cum[next_wp_id]
+        s_prev = length_cum[prev_wp_id]
+
+        if np.abs(self.s - s_next) < np.abs(self.s - s_prev):
+            self.wp_id = next_wp_id
+            self.current_waypoint = self.reference_path.waypoints[next_wp_id]
+        else:
+            self.wp_id = prev_wp_id
+            self.current_waypoint = self.reference_path.waypoints[prev_wp_id]
+        #
+        # # Weight for next waypoint
+        # w = (s_next - self.s) / (s_next - s_prev)
+        #
+        # # Interpolate between the two waypoints
+        # prev_wp = self.reference_path.waypoints[prev_wp_id]
+        # next_wp = self.reference_path.waypoints[next_wp_id]
+        # x = w * next_wp.x + (1 - w) * prev_wp.x
+        # y = w * next_wp.y + (1 - w) * prev_wp.y
+        # psi = w * next_wp.psi + (1 - w) * prev_wp.psi
+        # kappa = w * next_wp.kappa + (1 - w) * prev_wp.kappa
+
+
 
     def show(self):
         """
