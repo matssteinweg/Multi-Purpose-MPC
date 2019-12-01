@@ -84,7 +84,7 @@ class Obstacle:
 
 class ReferencePath:
     def __init__(self, map, wp_x, wp_y, resolution, smoothing_distance,
-                 max_width):
+                 max_width, n_extension, circular):
         """
         Reference Path object. Create a reference trajectory from specified
         corner points with given resolution. Smoothing around corners can be
@@ -97,6 +97,9 @@ class ReferencePath:
         :param smoothing_distance: number of waypoints used for smoothing the
         path by averaging neighborhood of waypoints
         :param max_width: maximum width of path to both sides in m
+        :param n_extension: number of samples used for path extension to allow
+        for MPC
+        :param circular: True if path circular
         """
 
         # Precision
@@ -111,8 +114,17 @@ class ReferencePath:
         # Look ahead distance for path averaging
         self.smoothing_distance = smoothing_distance
 
+        # Number of waypoints used to extend path at the end
+        self.n_extension = n_extension
+
+        # Circular
+        self.circular = circular
+
         # List of waypoint objects
         self.waypoints = self._construct_path(wp_x, wp_y)
+
+        # Length of path
+        self.length, self.segment_lengths = self._compute_length()
 
         # Compute path width (attribute of each waypoint)
         self._compute_width(max_width=max_width)
@@ -141,6 +153,14 @@ class ReferencePath:
         wp_y = [np.linspace(wp_y[i], wp_y[i + 1], n_wp[i], endpoint=False).
                     tolist() for i in range(len(wp_y) - 1)]
         wp_y = [wp for segment in wp_y for wp in segment] + [gp_y]
+
+        if self.n_extension is not None:
+            if self.circular:
+                wp_x += wp_x[:self.n_extension]
+                wp_y += wp_y[:self.n_extension]
+            else:
+                wp_x += wp_x[-self.n_extension:]
+                wp_y += wp_y[-self.n_extension:]
 
         # Smooth path
         wp_xs = []
@@ -204,6 +224,17 @@ class ReferencePath:
             waypoints.append(Waypoint(x, y, psi, kappa))
 
         return waypoints
+
+    def _compute_length(self):
+        """
+        Compute length of center-line path as sum of euclidean distance between
+        waypoints.
+        :return: length of center-line path in m
+        """
+        segment_lengths = [0.0] + [self.waypoints[wp_id+1] - self.waypoints
+                    [wp_id] for wp_id in range(len(self.waypoints)-self.n_extension-1)]
+        s = sum(segment_lengths)
+        return s, segment_lengths
 
     def _compute_width(self, max_width):
         """
@@ -408,14 +439,14 @@ class ReferencePath:
                    vmax=1.0)
 
         # Get x and y coordinates for all waypoints
-        wp_x = np.array([wp.x for wp in self.waypoints])
-        wp_y = np.array([wp.y for wp in self.waypoints])
+        wp_x = np.array([wp.x for wp in self.waypoints][:-self.n_extension])
+        wp_y = np.array([wp.y for wp in self.waypoints][:-self.n_extension])
 
         # Get x and y locations of border cells for upper and lower bound
-        wp_ub_x = np.array([wp.border_cells[0][0] for wp in self.waypoints])
-        wp_ub_y = np.array([wp.border_cells[0][1] for wp in self.waypoints])
-        wp_lb_x = np.array([wp.border_cells[1][0] for wp in self.waypoints])
-        wp_lb_y = np.array([wp.border_cells[1][1] for wp in self.waypoints])
+        wp_ub_x = np.array([wp.border_cells[0][0] for wp in self.waypoints][:-self.n_extension])
+        wp_ub_y = np.array([wp.border_cells[0][1] for wp in self.waypoints][:-self.n_extension])
+        wp_lb_x = np.array([wp.border_cells[1][0] for wp in self.waypoints][:-self.n_extension])
+        wp_lb_y = np.array([wp.border_cells[1][1] for wp in self.waypoints][:-self.n_extension])
 
         # Plot waypoints
         plt.scatter(wp_x, wp_y, color=WAYPOINTS, s=3)
@@ -431,16 +462,16 @@ class ReferencePath:
 
         # Plot border of path
         bl_x = np.array([wp.border_cells[0][0] for wp in
-                         self.waypoints] +
+                         self.waypoints][:-self.n_extension] +
                         [self.waypoints[0].border_cells[0][0]])
         bl_y = np.array([wp.border_cells[0][1] for wp in
-                         self.waypoints] +
+                         self.waypoints][:-self.n_extension] +
                         [self.waypoints[0].border_cells[0][1]])
         br_x = np.array([wp.border_cells[1][0] for wp in
-                         self.waypoints] +
+                         self.waypoints][:-self.n_extension] +
                         [self.waypoints[0].border_cells[1][0]])
         br_y = np.array([wp.border_cells[1][1] for wp in
-                         self.waypoints] +
+                         self.waypoints][:-self.n_extension] +
                         [self.waypoints[0].border_cells[1][1]])
         # Smooth border
         # bl_x = savgol_filter(bl_x, 15, 9)
@@ -449,7 +480,7 @@ class ReferencePath:
         # br_y = savgol_filter(br_y, 15, 9)
 
         # If circular path, connect start and end point
-        if np.abs(self.waypoints[-1] - self.waypoints[0]) <= 2*self.resolution:
+        if self.circular:
             plt.plot(bl_x, bl_y, color=OBSTACLE)
             plt.plot(br_x, br_y, color=OBSTACLE)
         # If not circular, close path at start and end
@@ -480,7 +511,8 @@ if __name__ == '__main__':
         # Specify path resolution
         path_resolution = 0.05  # m / wp
         reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
-                                       smoothing_distance=5, max_width=0.22)
+                     smoothing_distance=5, max_width=0.22, n_extension=30,
+                                       circular=True)
         # Add obstacles
         obs1 = Obstacle(cx=0.0, cy=0.0, radius=0.05)
         obs2 = Obstacle(cx=-0.8, cy=-0.5, radius=0.05)
@@ -500,7 +532,8 @@ if __name__ == '__main__':
         # Specify path resolution
         path_resolution = 0.20  # m / wp
         reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
-                                       smoothing_distance=5, max_width=1.5)
+                                       smoothing_distance=5, max_width=1.5,
+                                       n_extension=30, circular=False)
         obs1 = Obstacle(cx=-6.3, cy=-11.1, radius=0.20)
         obs2 = Obstacle(cx=-2.2, cy=-6.8, radius=0.25)
         obs3 = Obstacle(cx=1.7, cy=-1.0, radius=0.15)
