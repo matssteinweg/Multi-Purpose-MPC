@@ -351,17 +351,17 @@ class ReferencePath:
         # Plot arrows indicating drivable area
         if display_drivable_area:
             plt.quiver(wp_x, wp_y, wp_ub_x - wp_x, wp_ub_y - wp_y, scale=1,
-                   units='xy', width=0.2*self.resolution, color='#2ECC71',
-                   headwidth=1, headlength=2)
+                   units='xy', width=1.5*self.resolution, color='#2ECC71',
+                   headwidth=1, headlength=0)
             plt.quiver(wp_x, wp_y, wp_lb_x - wp_x, wp_lb_y - wp_y, scale=1,
-                   units='xy', width=0.2*self.resolution, color='#2ECC71',
-                   headwidth=1, headlength=2)
+                   units='xy', width=1.5*self.resolution, color='#2ECC71',
+                   headwidth=1, headlength=0)
 
 
 if __name__ == '__main__':
 
     # Select Path | 'Race' or 'Q'
-    path = 'Race'
+    path = 'Q'
 
     # Create Map
     if path == 'Race':
