@@ -2,6 +2,7 @@ import numpy as np
 import osqp
 from scipy import sparse
 import matplotlib.pyplot as plt
+from time import time
 
 # Colors
 PREDICTION = '#BA4A00'
@@ -145,6 +146,12 @@ class MPC:
         # Number of state variables
         nx = self.model.n_states
 
+        # Update current waypoint
+        self.model.get_current_waypoint()
+
+        # Update spatial state
+        self.model.spatial_state = self.model.t2s()
+
         # Initialize optimization problem
         self._init_problem(v)
 
@@ -198,17 +205,18 @@ class MPC:
         x_pred, y_pred = [], []
 
         # get current waypoint ID
-        print('#########################')
+        #print('#########################')
 
         for n in range(2, self.N):
             associated_waypoint = self.model.reference_path.waypoints[self.model.wp_id+n]
             predicted_temporal_state = self.model.s2t(associated_waypoint,
                                             spatial_state_prediction[n, :])
-            print('delta: ', u)
-            print('e_y: ', spatial_state_prediction[n, 0])
-            print('e_psi: ', spatial_state_prediction[n, 1])
-            print('t: ', spatial_state_prediction[n, 2])
-            print('+++++++++++++++++++++++')
+
+            #print('delta: ', u)
+            #print('e_y: ', spatial_state_prediction[n, 0])
+            #print('e_psi: ', spatial_state_prediction[n, 1])
+            #print('t: ', spatial_state_prediction[n, 2])
+            #print('+++++++++++++++++++++++')
 
             x_pred.append(predicted_temporal_state.x)
             y_pred.append(predicted_temporal_state.y)
