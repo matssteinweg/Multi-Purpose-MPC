@@ -3,6 +3,10 @@ import cvxpy as cp
 import osqp
 import scipy as sp
 from scipy import sparse
+import matplotlib.pyplot as plt
+
+# Colors
+PREDICTION = '#BA4A00'
 
 ##################
 # MPC Controller #
@@ -110,8 +114,9 @@ class MPC:
 
         self.current_prediction = self.update_prediction(self.x.value)
         delta = np.arctan(self.u.value[0, 0] * self.model.l)
+        u = np.array([v, delta])
 
-        return delta
+        return u
 
     def update_prediction(self, spatial_state_prediction):
         """
@@ -200,6 +205,10 @@ class MPC_OSQP:
         # Offset for equality constraint (due to B * (u - ur))
         uq = np.zeros(self.N * nx)
 
+        # Dynamic state constraints
+        xmin_dyn = np.kron(np.ones(self.N + 1), xmin)
+        xmax_dyn = np.kron(np.ones(self.N + 1), xmax)
+
         # Iterate over horizon
         for n in range(self.N):
 
@@ -220,6 +229,10 @@ class MPC_OSQP:
             ur[n] = kappa_r
             # Compute equality constraint offset (B*ur)
             uq[n * nx:n * nx + nx] = B_lin[:, 0] * kappa_r
+            lb, ub = self.model.reference_path.update_bounds(self.model,
+                self.model.wp_id + n)
+            xmin_dyn[nx * n] = lb
+            xmax_dyn[nx * n] = ub
 
         # Get equality matrix
         Ax = sparse.kron(sparse.eye(self.N + 1),
@@ -232,10 +245,10 @@ class MPC_OSQP:
         A = sparse.vstack([Aeq, Aineq], format='csc')
 
         # Get upper and lower bound vectors for equality constraints
-        lineq = np.hstack([np.kron(np.ones(self.N + 1), xmin),
-             np.kron(np.ones(self.N), umin)])
-        uineq = np.hstack([np.kron(np.ones(self.N + 1), xmax),
-             np.kron(np.ones(self.N), umax)])
+        lineq = np.hstack([xmin_dyn,
+                           np.kron(np.ones(self.N), umin)])
+        uineq = np.hstack([xmax_dyn,
+                           np.kron(np.ones(self.N), umax)])
         # Get upper and lower bound vectors for inequality constraints
         x0 = np.array(self.model.spatial_state[:])
         leq = np.hstack([-x0, uq])
@@ -270,8 +283,9 @@ class MPC_OSQP:
         # Solve optimization problem
         dec = self.optimizer.solve()
         x = np.reshape(dec.x[:(self.N+1)*nx], (self.N+1, nx))
-        u = np.arctan(dec.x[-self.N] * self.model.l)
-        self.current_prediction = self.update_prediction(u, x)
+        delta = np.arctan(dec.x[-self.N] * self.model.l)
+        self.current_prediction = self.update_prediction(delta, x)
+        u = np.array([v, delta])
 
         return u
 
@@ -289,7 +303,7 @@ class MPC_OSQP:
         # get current waypoint ID
         print('#########################')
 
-        for n in range(self.N):
+        for n in range(2, self.N):
             associated_waypoint = self.model.reference_path.waypoints[self.model.wp_id+n]
             predicted_temporal_state = self.model.s2t(associated_waypoint,
                                             spatial_state_prediction[n, :])
@@ -303,4 +317,12 @@ class MPC_OSQP:
             y_pred.append(predicted_temporal_state.y)
 
         return x_pred, y_pred
+
+    def show_prediction(self):
+        """
+        Display predicted car trajectory in current axis.
+        """
+
+        plt.scatter(self.current_prediction[0], self.current_prediction[1],
+                    c=PREDICTION, s=5)
 
