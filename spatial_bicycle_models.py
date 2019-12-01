@@ -1,6 +1,11 @@
 import numpy as np
 from abc import ABC, abstractmethod
+import matplotlib.pyplot as plt
+import matplotlib.patches as plt_patches
 
+# Colors
+CAR = '#F1C40F'
+CAR_OUTLINE = '#B7950B'
 
 #########################
 # Temporal State Vector #
@@ -81,7 +86,7 @@ class SimpleSpatialState(SpatialState):
 ####################################
 
 class SpatialBicycleModel(ABC):
-    def __init__(self, reference_path):
+    def __init__(self, reference_path, length, width):
         """
         Abstract Base Class for Spatial Reformulation of Bicycle Model.
         :param reference_path: reference path object to follow
@@ -89,6 +94,11 @@ class SpatialBicycleModel(ABC):
 
         # Precision
         self.eps = 1e-12
+
+        # Car Parameters
+        self.l = length
+        self.w = width
+        self.safety_margin = self._compute_safety_margin()
 
         # Reference Path
         self.reference_path = reference_path
@@ -192,6 +202,47 @@ class SpatialBicycleModel(ABC):
 
             return state
 
+    def _compute_safety_margin(self):
+        """
+        Compute safety margin for car if modeled by its center of gravity.
+        """
+
+        # Model ellipsoid around the car
+        length = self.l / np.sqrt(2)
+        width = self.w / np.sqrt(2)
+
+        return length, width
+
+    def show(self):
+        """
+        Display car on current axis.
+        """
+
+        # Get car's center of gravity
+        cog = (self.temporal_state.x, self.temporal_state.y)
+        # Get current angle with respect to x-axis
+        yaw = np.rad2deg(self.temporal_state.psi)
+        # Draw rectangle
+        car = plt_patches.Rectangle(cog, width=self.l, height=self.w,
+                              angle=yaw, facecolor=CAR, edgecolor=CAR_OUTLINE)
+
+        # Shift center rectangle to match center of the car
+        car.set_x(car.get_x() - (self.l/2 * np.cos(self.temporal_state.psi) -
+                                 self.w/2 * np.sin(self.temporal_state.psi)))
+        car.set_y(car.get_y() - (self.w/2 * np.cos(self.temporal_state.psi) +
+                                 self.l/2 * np.sin(self.temporal_state.psi)))
+
+        # Show safety margin
+        safety_margin = plt_patches.Ellipse(cog, width=2*self.safety_margin[0],
+                                            height=2*self.safety_margin[1],
+                                            angle=yaw,
+                                            fill=False, edgecolor=CAR)
+
+        # Add rectangle to current axis
+        ax = plt.gca()
+        ax.add_patch(safety_margin)
+        ax.add_patch(car)
+
     @abstractmethod
     def get_spatial_derivatives(self, state, input, kappa):
         pass
@@ -206,21 +257,20 @@ class SpatialBicycleModel(ABC):
 #################
 
 class BicycleModel(SpatialBicycleModel):
-    def __init__(self, reference_path, e_y, e_psi, t):
+    def __init__(self, length, width, reference_path, e_y, e_psi, t):
         """
         Simplified Spatial Bicycle Model. Spatial Reformulation of Kinematic
         Bicycle Model. Uses Simplified Spatial State.
+        :param length: length of the car in m
+        :param width: with of the car in m
         :param reference_path: reference path model is supposed to follow
         :param e_y: deviation from reference path | [m]
         :param e_psi: heading offset from reference path | [rad]
-        :param v: initial velocity | [m/s]
         """
 
         # Initialize base class
-        super(BicycleModel, self).__init__(reference_path)
-
-        # Constants
-        self.l = 0.06
+        super(BicycleModel, self).__init__(reference_path, length=length,
+                                           width=width)
 
         # Initialize spatial state
         self.spatial_state = SimpleSpatialState(e_y, e_psi, t)
@@ -230,9 +280,6 @@ class BicycleModel(SpatialBicycleModel):
 
         # Initialize temporal state
         self.temporal_state = self.s2t()
-
-        # Compute linear system matrices | Used for MPC
-        # self.A, self.B = self.linearize()
 
     def s2t(self, reference_waypoint=None, reference_state=None):
         """
