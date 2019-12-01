@@ -1,15 +1,7 @@
-#!/usr/bin/env python
-
-import sys
-import os
-import math
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage.morphology import remove_small_holes
 from PIL import Image
-dirname = os.path.dirname(__file__)
-svea = os.path.join(dirname, '../../')
-sys.path.append(os.path.abspath(svea))
 
 
 class Map:
@@ -24,7 +16,7 @@ class Map:
         self.threshold_occupied = threshold_occupied
         # instantiate member variables
         self.data = np.array(Image.open(file_path))[:, :, 0]  # numpy array containing map data
-        #self.process_map()
+        self.process_map()
         self.height = self.data.shape[0]  # height of the map in px
         self.width = self.data.shape[1]  # width of the map in px
         self.resolution = resolution  # resolution of the map in m/px
@@ -52,14 +44,16 @@ class Map:
         :param y: y coordinate in global coordinate system
         :return: discrete x and y coordinates in px
         """
-        x = dx * self.resolution + self.origin[0]
-        y = dy * self.resolution + self.origin[1]
+        x = (dx + 0.5) * self.resolution + self.origin[0]
+        y = (dy + 0.5) * self.resolution + self.origin[1]
 
         return x, y
 
     def process_map(self):
-        self.data = remove_small_holes(self.data, area_threshold=5,
-                                       connectivity=8).astype(np.int8)
+        #self.data = remove_small_holes(self.data, area_threshold=5,
+        #                               connectivity=8).astype(np.int8)
+        self.data = np.where(self.data >= 100, 1, 0)
+
 
 
 if __name__ == '__main__':
