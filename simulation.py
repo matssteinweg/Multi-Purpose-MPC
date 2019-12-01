@@ -1,11 +1,10 @@
 from map import Map
 import numpy as np
-from reference_path import ReferencePath
+from reference_path import ReferencePath, Obstacle
 from spatial_bicycle_models import BicycleModel
 import matplotlib.pyplot as plt
 from MPC import MPC, MPC_OSQP
 from scipy import sparse
-import time
 
 
 if __name__ == '__main__':
@@ -23,20 +22,36 @@ if __name__ == '__main__':
                 -1.5, -1.5]
         # Specify path resolution
         path_resolution = 0.05  # m / wp
+        # Create smoothed reference path
+        reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
+                                       smoothing_distance=5, max_width=0.22)
     elif sim_mode == 'Q':
         map = Map(file_path='map_floor2.png')
         wp_x = [-9.169, 11.9, 7.3, -6.95]
         wp_y = [-15.678, 10.9, 14.5, -3.31]
         # Specify path resolution
         path_resolution = 0.20  # m / wp
+        # Create smoothed reference path
+        reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
+                                       smoothing_distance=5, max_width=1.50)
     else:
         print('Invalid Simulation Mode!')
-        map, wp_x, wp_y, path_resolution = None, None, None, None
+        map, wp_x, wp_y, path_resolution, reference_path \
+            = None, None, None, None, None
         exit(1)
 
-    # Create smoothed reference path
-    reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
-                                   smoothing_distance=5)
+    obs1 = Obstacle(cx=0.0, cy=0.0, radius=0.05)
+    obs2 = Obstacle(cx=-0.8, cy=-0.5, radius=0.05)
+    obs3 = Obstacle(cx=-0.7, cy=-1.5, radius=0.07)
+    obs4 = Obstacle(cx=-0.3, cy=-1.0, radius=0.07)
+    obs5 = Obstacle(cx=0.3, cy=-1.0, radius=0.05)
+    obs6 = Obstacle(cx=0.75, cy=-1.5, radius=0.07)
+    obs7 = Obstacle(cx=0.7, cy=-0.9, radius=0.08)
+    obs8 = Obstacle(cx=1.2, cy=0.0, radius=0.08)
+    obs9 = Obstacle(cx=0.7, cy=-0.1, radius=0.05)
+    obs10 = Obstacle(cx=1.1, cy=-0.6, radius=0.07)
+    reference_path.add_obstacles([obs1, obs2, obs3, obs4, obs5, obs6, obs7,
+                                  obs8, obs9, obs10])
 
     ################
     # Motion Model #
@@ -48,19 +63,21 @@ if __name__ == '__main__':
     t_0 = 0.0
     v = 1.0
 
-    car = BicycleModel(reference_path=reference_path,
-                                e_y=e_y_0, e_psi=e_psi_0, t=t_0)
+    car = BicycleModel(length=0.12, width=0.06, reference_path=reference_path,
+                       e_y=e_y_0, e_psi=e_psi_0, t=t_0)
 
     ##############
     # Controller #
     ##############
 
-    N = 20
-    Q = sparse.diags([0.01, 0.0, 0.4])
-    R = sparse.diags([0.01])
+    N = 30
+    Q = sparse.diags([1.0, 0.0, 0.1])
+    R = sparse.diags([0.0001])
     QN = Q
-    InputConstraints = {'umin': np.array([-np.tan(0.44)/car.l]), 'umax': np.array([np.tan(0.44)/car.l])}
-    StateConstraints = {'xmin': np.array([-0.2, -np.inf, 0]), 'xmax': np.array([0.2, np.inf, np.inf])}
+    InputConstraints = {'umin': np.array([-np.tan(0.66)/car.l]),
+                        'umax': np.array([np.tan(0.66)/car.l])}
+    StateConstraints = {'xmin': np.array([-np.inf, -np.inf, -np.inf]),
+                        'xmax': np.array([np.inf, np.inf, np.inf])}
     mpc = MPC_OSQP(car, N, Q, R, QN, StateConstraints, InputConstraints)
 
     ##############
@@ -72,13 +89,10 @@ if __name__ == '__main__':
     y_log = [car.temporal_state.y]
 
     # iterate over waypoints
-    for wp_id in range(len(car.reference_path.waypoints)-mpc.N-1):
+    for wp_id in range(len(car.reference_path.waypoints)-N-1):
 
         # get control signals
-        start = time.time()
-        delta = mpc.get_control(v)
-        end = time.time()
-        u = np.array([v, delta])
+        u = mpc.get_control(v)
 
         # drive car
         car.drive(u)
@@ -90,17 +104,17 @@ if __name__ == '__main__':
         ###################
         # Plot Simulation #
         ###################
-        # plot path
-        car.reference_path.show()
 
-        # plot car trajectory and velocity
-        plt.scatter(x_log[:-1], y_log[:-1], c='g', s=15)
+        # Plot path and drivable area
+        reference_path.show()
 
-        plt.scatter(mpc.current_prediction[0], mpc.current_prediction[1], c='b', s=5)
+        # Plot MPC prediction
+        mpc.show_prediction()
+
+        # Plot car
+        car.show()
 
         plt.title('MPC Simulation: Position: {:.2f} m, {:.2f} m'.
                   format(car.temporal_state.x, car.temporal_state.y))
-        plt.xticks([])
-        plt.yticks([])
-        plt.pause(0.00000001)
+        plt.pause(0.05)
     plt.close()
