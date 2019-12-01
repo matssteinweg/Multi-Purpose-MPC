@@ -178,6 +178,12 @@ class MPC_OSQP:
         # Current control and prediction
         self.current_prediction = None
 
+        # Counter for old control signals in case of infeasible problem
+        self.infeasibility_counter = 0
+
+        # Current control signals
+        self.current_control = None
+
         # Initialize Optimization Problem
         self.optimizer = osqp.OSQP()
 
@@ -282,10 +288,39 @@ class MPC_OSQP:
 
         # Solve optimization problem
         dec = self.optimizer.solve()
-        x = np.reshape(dec.x[:(self.N+1)*nx], (self.N+1, nx))
-        delta = np.arctan(dec.x[-self.N] * self.model.l)
-        self.current_prediction = self.update_prediction(delta, x)
-        u = np.array([v, delta])
+
+        try:
+            # Get control signals
+            deltas = np.arctan(dec.x[-self.N:] * self.model.l)
+            delta = deltas[0]
+
+            # Update control signals
+            self.current_control = deltas
+
+            # Get predicted spatial states
+            x = np.reshape(dec.x[:(self.N+1)*nx], (self.N+1, nx))
+            # Update predicted temporal states
+            self.current_prediction = self.update_prediction(delta, x)
+
+            # Get current control signal
+            u = np.array([v, delta])
+
+            # if problem solved, reset infeasibility counter
+            self.infeasibility_counter = 0
+
+        except:
+
+            print('Infeasible problem. Previously predicted'
+                  ' control signal used!')
+            u = np.array([v, self.current_control
+            [self.infeasibility_counter+1]])
+
+            # increase infeasibility counter
+            self.infeasibility_counter += 1
+
+        if self.infeasibility_counter == (self.N - 1):
+            print('No control signal computed!')
+            exit(1)
 
         return u
 
