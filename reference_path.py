@@ -467,7 +467,7 @@ class ReferencePath:
 if __name__ == '__main__':
 
     # Select Path | 'Race' or 'Q'
-    path = 'Race'
+    path = 'Q'
 
     # Create Map
     if path == 'Race':
@@ -481,6 +481,18 @@ if __name__ == '__main__':
         path_resolution = 0.05  # m / wp
         reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
                                        smoothing_distance=5, max_width=0.22)
+        # Add obstacles
+        obs1 = Obstacle(cx=0.0, cy=0.0, radius=0.05)
+        obs2 = Obstacle(cx=-0.8, cy=-0.5, radius=0.05)
+        obs3 = Obstacle(cx=-0.7, cy=-1.5, radius=0.05)
+        obs4 = Obstacle(cx=-0.3, cy=-1.0, radius=0.05)
+        obs5 = Obstacle(cx=0.3, cy=-1.0, radius=0.05)
+        obs6 = Obstacle(cx=0.75, cy=-1.5, radius=0.05)
+        obs7 = Obstacle(cx=0.7, cy=-0.9, radius=0.05)
+        obs8 = Obstacle(cx=1.2, cy=0.0, radius=0.05)
+        reference_path.add_obstacles([obs1, obs2, obs3, obs4, obs5, obs6, obs7,
+                                      obs8])
+
     elif path == 'Q':
         map = Map(file_path='map_floor2.png')
         wp_x = [-9.169, 11.9, 7.3, -6.95]
@@ -489,21 +501,16 @@ if __name__ == '__main__':
         path_resolution = 0.20  # m / wp
         reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
                                        smoothing_distance=5, max_width=1.5)
+        obs1 = Obstacle(cx=-6.3, cy=-11.1, radius=0.20)
+        obs2 = Obstacle(cx=-2.2, cy=-6.8, radius=0.25)
+        obs3 = Obstacle(cx=1.7, cy=-1.0, radius=0.15)
+        obs4 = Obstacle(cx=2.0, cy=-1.2, radius=0.25)
+        reference_path.add_obstacles([obs1, obs2, obs3, obs4])
+
     else:
         reference_path = None
         print('Invalid path!')
         exit(1)
-
-    obs1 = Obstacle(cx=0.0, cy=0.0, radius=0.05)
-    obs2 = Obstacle(cx=-0.8, cy=-0.5, radius=0.05)
-    obs3 = Obstacle(cx=-0.7, cy=-1.5, radius=0.05)
-    obs4 = Obstacle(cx=-0.3, cy=-1.0, radius=0.05)
-    obs5 = Obstacle(cx=0.3, cy=-1.0, radius=0.05)
-    obs6 = Obstacle(cx=0.75, cy=-1.5, radius=0.05)
-    obs7 = Obstacle(cx=0.7, cy=-0.9, radius=0.05)
-    obs8 = Obstacle(cx=1.2, cy=0.0, radius=0.05)
-    reference_path.add_obstacles([obs1, obs2, obs3, obs4, obs5, obs6, obs7,
-                                  obs8])
 
     reference_path.show()
     plt.show()
