@@ -3,6 +3,13 @@ import math
 from map import Map
 from bresenham import bresenham
 import matplotlib.pyplot as plt
+import matplotlib.patches as plt_patches
+from scipy.signal import savgol_filter
+
+# Colors
+DRIVABLE_AREA = '#BDC3C7'
+WAYPOINTS = '#D0D3D4'
+OBSTACLE = '#2E4053'
 
 
 ############
@@ -41,13 +48,43 @@ class Waypoint:
         return ((self.x - other.x)**2 + (self.y - other.y)**2)**0.5
 
 
+############
+# Obstacle #
+############
+
+class Obstacle:
+    def __init__(self, cx, cy, radius):
+        """
+        Constructor for a circular obstacle to be place on a path.
+        :param cx: x coordinate of center of obstacle in world coordinates
+        :param cy: y coordinate of center of obstacle in world coordinates
+        :param radius: radius of circular obstacle in m
+        """
+
+        self.cx = cx
+        self.cy = cy
+        self.radius = radius
+
+    def show(self):
+        """
+        Display obstacle.
+        """
+
+        # Draw circle
+        circle = plt_patches.Circle(xy=(self.cx, self.cy), radius=
+                                            self.radius, color=OBSTACLE)
+        ax = plt.gca()
+        ax.add_patch(circle)
+
+
 ##################
 # Reference Path #
 ##################
 
 
 class ReferencePath:
-    def __init__(self, map, wp_x, wp_y, resolution, smoothing_distance, max_width):
+    def __init__(self, map, wp_x, wp_y, resolution, smoothing_distance,
+                 max_width):
         """
         Reference Path object. Create a reference trajectory from specified
         corner points with given resolution. Smoothing around corners can be
@@ -79,6 +116,9 @@ class ReferencePath:
 
         # Compute path width (attribute of each waypoint)
         self._compute_width(max_width=max_width)
+
+        # Obstacles on path
+        self.obstacles = list()
 
     def _construct_path(self, wp_x, wp_y):
         """
@@ -250,12 +290,16 @@ class ReferencePath:
 
         return min_width, min_cell
 
-    def update_bounds(self, wp_id):
+    def update_bounds(self, car, wp_id):
         """
         Compute upper and lower bounds of the drivable area orthogonal to
         the given waypoint.
+        :param car: car model driving on the path
         :param wp_id: ID of reference waypoint
         """
+
+        # Get car-dependent safety margin
+        safety_margin = car.safety_margin
 
         # Get reference waypoint
         wp = self.waypoints[wp_id]
@@ -311,12 +355,34 @@ class ReferencePath:
         ub = sign_ub * np.sqrt((ub_ls[0]-wp.x)**2+(ub_ls[1]-wp.y)**2)
         lb = sign_lb * np.sqrt((lb_ls[0]-wp.x)**2+(lb_ls[1]-wp.y)**2)
 
+        # Add safety margin to bounds
+        ub = ub - (safety_margin[1] + 2 * self.map.resolution)
+        lb = lb + (safety_margin[1] + 2 * self.map.resolution)
+
         # Update member variables of waypoint
         wp.ub = ub
         wp.lb = lb
         wp.border_cells = (ub_ls, lb_ls)
 
         return lb, ub
+
+    def add_obstacles(self, obstacles):
+        """
+        Add obstacles to the path.
+        :param obstacles: list of obstacle objects
+        """
+
+        # Extend list of obstacles
+        self.obstacles.extend(obstacles)
+
+        # Iterate over list of obstacles
+        for obstacle in obstacles:
+            radius_px = int(np.ceil(obstacle.radius / self.map.resolution))
+            cx_px, cy_px = self.map.w2m(obstacle.cx, obstacle.cy)
+            y, x = np.ogrid[-radius_px: radius_px, -radius_px: radius_px]
+            index = x ** 2 + y ** 2 <= radius_px ** 2
+            self.map.data[cy_px-radius_px:cy_px+radius_px, cx_px-radius_px:
+                                                cx_px+radius_px][index] = 0
 
     def show(self, display_drivable_area=True):
         """
@@ -328,12 +394,18 @@ class ReferencePath:
         # Clear figure
         plt.clf()
 
+        # Disabled ticks
+        plt.xticks([])
+        plt.yticks([])
+
         # Plot map in gray-scale and set extent to match world coordinates
-        plt.imshow(np.flipud(self.map.data), cmap='gray',
+        canvas = np.ones(self.map.data.shape)
+        plt.imshow(canvas, cmap='gray',
                    extent=[self.map.origin[0], self.map.origin[0] +
                            self.map.width * self.map.resolution,
                            self.map.origin[1], self.map.origin[1] +
-                           self.map.height * self.map.resolution])
+                           self.map.height * self.map.resolution], vmin=0.0,
+                   vmax=1.0)
 
         # Get x and y coordinates for all waypoints
         wp_x = np.array([wp.x for wp in self.waypoints])
@@ -346,22 +418,56 @@ class ReferencePath:
         wp_lb_y = np.array([wp.border_cells[1][1] for wp in self.waypoints])
 
         # Plot waypoints
-        plt.scatter(wp_x, wp_y, color='#99A3A4', s=3)
+        plt.scatter(wp_x, wp_y, color=WAYPOINTS, s=3)
 
         # Plot arrows indicating drivable area
         if display_drivable_area:
             plt.quiver(wp_x, wp_y, wp_ub_x - wp_x, wp_ub_y - wp_y, scale=1,
-                   units='xy', width=1.5*self.resolution, color='#2ECC71',
+                   units='xy', width=0.2*self.resolution, color=DRIVABLE_AREA,
                    headwidth=1, headlength=0)
             plt.quiver(wp_x, wp_y, wp_lb_x - wp_x, wp_lb_y - wp_y, scale=1,
-                   units='xy', width=1.5*self.resolution, color='#2ECC71',
+                   units='xy', width=0.2*self.resolution, color=DRIVABLE_AREA,
                    headwidth=1, headlength=0)
+
+        # Plot border of path
+        bl_x = np.array([wp.border_cells[0][0] for wp in
+                         self.waypoints] +
+                        [self.waypoints[0].border_cells[0][0]])
+        bl_y = np.array([wp.border_cells[0][1] for wp in
+                         self.waypoints] +
+                        [self.waypoints[0].border_cells[0][1]])
+        br_x = np.array([wp.border_cells[1][0] for wp in
+                         self.waypoints] +
+                        [self.waypoints[0].border_cells[1][0]])
+        br_y = np.array([wp.border_cells[1][1] for wp in
+                         self.waypoints] +
+                        [self.waypoints[0].border_cells[1][1]])
+        # Smooth border
+        # bl_x = savgol_filter(bl_x, 15, 9)
+        # bl_y = savgol_filter(bl_y, 15, 9)
+        # br_x = savgol_filter(br_x, 15, 9)
+        # br_y = savgol_filter(br_y, 15, 9)
+
+        # If circular path, connect start and end point
+        if np.abs(self.waypoints[-1] - self.waypoints[0]) <= 2*self.resolution:
+            plt.plot(bl_x, bl_y, color=OBSTACLE)
+            plt.plot(br_x, br_y, color=OBSTACLE)
+        # If not circular, close path at start and end
+        else:
+            plt.plot(bl_x[:-1], bl_y[:-1], color=OBSTACLE)
+            plt.plot(br_x[:-1], br_y[:-1], color=OBSTACLE)
+            plt.plot((bl_x[-2],br_x[-2]), (bl_y[-2], br_y[-2]), color=OBSTACLE)
+            plt.plot((bl_x[0],br_x[0]), (bl_y[0], br_y[0]), color=OBSTACLE)
+
+        # Plot obstacles
+        for obstacle in self.obstacles:
+            obstacle.show()
 
 
 if __name__ == '__main__':
 
     # Select Path | 'Race' or 'Q'
-    path = 'Q'
+    path = 'Race'
 
     # Create Map
     if path == 'Race':
@@ -387,6 +493,17 @@ if __name__ == '__main__':
         reference_path = None
         print('Invalid path!')
         exit(1)
+
+    obs1 = Obstacle(cx=0.0, cy=0.0, radius=0.05)
+    obs2 = Obstacle(cx=-0.8, cy=-0.5, radius=0.05)
+    obs3 = Obstacle(cx=-0.7, cy=-1.5, radius=0.05)
+    obs4 = Obstacle(cx=-0.3, cy=-1.0, radius=0.05)
+    obs5 = Obstacle(cx=0.3, cy=-1.0, radius=0.05)
+    obs6 = Obstacle(cx=0.75, cy=-1.5, radius=0.05)
+    obs7 = Obstacle(cx=0.7, cy=-0.9, radius=0.05)
+    obs8 = Obstacle(cx=1.2, cy=0.0, radius=0.05)
+    reference_path.add_obstacles([obs1, obs2, obs3, obs4, obs5, obs6, obs7,
+                                  obs8])
 
     reference_path.show()
     plt.show()
