@@ -3,7 +3,7 @@ import numpy as np
 from reference_path import ReferencePath, Obstacle
 from spatial_bicycle_models import BicycleModel
 import matplotlib.pyplot as plt
-from MPC import MPC, MPC_OSQP
+from MPC import MPC
 from scipy import sparse
 
 
@@ -24,7 +24,8 @@ if __name__ == '__main__':
         path_resolution = 0.05  # m / wp
         # Create smoothed reference path
         reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
-                                       smoothing_distance=5, max_width=0.22)
+                                       smoothing_distance=5, max_width=0.22,
+                                       n_extension=50, circular=True)
     elif sim_mode == 'Q':
         map = Map(file_path='map_floor2.png')
         wp_x = [-9.169, 11.9, 7.3, -6.95]
@@ -33,7 +34,8 @@ if __name__ == '__main__':
         path_resolution = 0.20  # m / wp
         # Create smoothed reference path
         reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
-                                       smoothing_distance=5, max_width=1.50)
+                                       smoothing_distance=5, max_width=1.50,
+                                       n_extension=50, circular=False)
     else:
         print('Invalid Simulation Mode!')
         map, wp_x, wp_y, path_resolution, reference_path \
@@ -71,25 +73,30 @@ if __name__ == '__main__':
     ##############
 
     N = 30
-    Q = sparse.diags([1.0, 0.0, 0.1])
-    R = sparse.diags([0.0001])
+    Q = sparse.diags([1.0, 0.0, 0.0])
+    R = sparse.diags([0.01])
     QN = Q
     InputConstraints = {'umin': np.array([-np.tan(0.66)/car.l]),
                         'umax': np.array([np.tan(0.66)/car.l])}
     StateConstraints = {'xmin': np.array([-np.inf, -np.inf, -np.inf]),
                         'xmax': np.array([np.inf, np.inf, np.inf])}
-    mpc = MPC_OSQP(car, N, Q, R, QN, StateConstraints, InputConstraints)
+    mpc = MPC(car, N, Q, R, QN, StateConstraints, InputConstraints)
 
     ##############
     # Simulation #
     ##############
 
-    # logging containers
+    # Sampling time
+    Ts = 0.05
+    t = 0
+    car.set_sampling_time(Ts)
+
+    # Logging containers
     x_log = [car.temporal_state.x]
     y_log = [car.temporal_state.y]
 
-    # iterate over waypoints
-    for wp_id in range(len(car.reference_path.waypoints)-N-1):
+    # Until arrival at end of path
+    while car.s < reference_path.length:
 
         # get control signals
         u = mpc.get_control(v)
@@ -114,7 +121,12 @@ if __name__ == '__main__':
         # Plot car
         car.show()
 
-        plt.title('MPC Simulation: Position: {:.2f} m, {:.2f} m'.
-                  format(car.temporal_state.x, car.temporal_state.y))
-        plt.pause(0.05)
+        t += Ts
+
+        plt.title('MPC Simulation: Distance: {:.2f}m/{:.2f} m, Duration: {:.2f} s'.
+                  format(car.s, car.reference_path.length, t))
+        if t == Ts:
+            plt.show()
+        plt.pause(0.0001)
+    print('Final Time: {:.2f}'.format(t))
     plt.close()
