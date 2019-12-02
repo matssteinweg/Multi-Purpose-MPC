@@ -1,5 +1,13 @@
 import numpy as np
-from abc import ABC, abstractmethod
+from abc import abstractmethod
+try:
+    from abc import ABC
+except:
+    # for Python 2.7
+    from abc import ABCMeta
+    class ABC(object):
+        __metaclass__ = ABCMeta
+        pass
 import matplotlib.pyplot as plt
 import matplotlib.patches as plt_patches
 import math
@@ -26,14 +34,16 @@ class TemporalState:
         self.y = y
         self.psi = psi
 
+        self.members = ['x', 'y', 'psi']
+
     def __iadd__(self, other):
         """
         Overload Sum-Add operator.
         :param other: numpy array to be added to state vector
         """
 
-        for state_id, state in enumerate(vars(self).values()):
-            vars(self)[list(vars(self).keys())[state_id]] += other[state_id]
+        for state_id in range(len(self.members)):
+            vars(self)[self.members[state_id]] += other[state_id]
         return self
 
 
@@ -48,16 +58,21 @@ class SpatialState(ABC):
 
     @abstractmethod
     def __init__(self):
+        self.members = None
         pass
 
     def __getitem__(self, item):
-        return list(vars(self).values())[item]
+        if isinstance(item, int):
+            members = [self.members[item]]
+        else:
+            members = self.members[item]
+        return [vars(self)[key] for key in members]
 
     def __setitem__(self, key, value):
-        vars(self)[list(vars(self).keys())[key]] = value
+        vars(self)[self.members[key]] = value
 
     def __len__(self):
-        return len(vars(self))
+        return len(self.members)
 
     def __iadd__(self, other):
         """
@@ -65,15 +80,15 @@ class SpatialState(ABC):
         :param other: numpy array to be added to state vector
         """
 
-        for state_id, state in enumerate(vars(self).values()):
-            vars(self)[list(vars(self).keys())[state_id]] += other[state_id]
+        for state_id in range(len(self.members)):
+            vars(self)[self.members[state_id]] += other[state_id]
         return self
 
     def list_states(self):
         """
         Return list of names of all states.
         """
-        return list(vars(self).keys())
+        return self.members
 
 
 class SimpleSpatialState(SpatialState):
@@ -90,6 +105,8 @@ class SimpleSpatialState(SpatialState):
         self.e_y = e_y
         self.e_psi = e_psi
         self.t = t
+
+        self.members = ['e_y', 'e_psi', 't']
 
 
 ####################################

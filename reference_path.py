@@ -1,7 +1,7 @@
 import numpy as np
 import math
 from map import Map
-from bresenham import bresenham
+from skimage.draw import line
 import matplotlib.pyplot as plt
 import matplotlib.patches as plt_patches
 from scipy.signal import savgol_filter
@@ -297,8 +297,8 @@ class ReferencePath:
         # Get Bresenham paths to all possible cells
         paths = []
         for t_x, t_y in zip(tn_x, tn_y):
-            path = list(bresenham(wp_x, wp_y, t_x, t_y))
-            paths.append(path)
+            x_list, y_list = line(wp_x, wp_y, t_x, t_y)
+            paths.append(zip(x_list, y_list))
 
         # Compute minimum distance to border cell
         min_width = max_width
@@ -340,7 +340,7 @@ class ReferencePath:
         lb_p = self.map.w2m(wp.border_cells[1][0], wp.border_cells[1][1])
 
         # Compute path from left border cell to right border cell
-        path = list(bresenham(ub_p[0], ub_p[1], lb_p[0], lb_p[1]))
+        x_list, y_list = line(ub_p[0], ub_p[1], lb_p[0], lb_p[1])
 
         # Initialize upper and lower bound of drivable area to
         # upper bound of path
@@ -351,7 +351,7 @@ class ReferencePath:
         ub_ls, lb_ls = ub_p, ub_p
 
         # Iterate over path from left border to right border
-        for x, y in path:
+        for x, y in zip(x_list, y_list):
             # If cell is free, update lower bound
             if self.map.data[y, x] == 1:
                 lb_o = (x, y)

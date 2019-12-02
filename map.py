@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from skimage.morphology import remove_small_holes
+# from skimage.morphology import remove_small_holes
 from PIL import Image
 
 
