@@ -395,9 +395,9 @@ class ReferencePath:
         lb_ls = wp.x - lb * np.cos(angle_lb), wp.y - lb * np.sin(angle_lb)
 
         # Update member variables of waypoint
-        wp.ub = ub
-        wp.lb = lb
-        wp.border_cells = (ub_ls, lb_ls)
+        #wp.ub = ub
+        #wp.lb = lb
+        #wp.border_cells = (ub_ls, lb_ls)
 
         return lb, ub
 
@@ -435,7 +435,7 @@ class ReferencePath:
 
         # Plot map in gray-scale and set extent to match world coordinates
         canvas = np.ones(self.map.data.shape)
-        canvas = np.flipud(self.map.data)
+        # canvas = np.flipud(self.map.data)
         plt.imshow(canvas, cmap='gray',
                    extent=[self.map.origin[0], self.map.origin[0] +
                            self.map.width * self.map.resolution,
@@ -503,7 +503,7 @@ class ReferencePath:
 if __name__ == '__main__':
 
     # Select Path | 'Race' or 'Q'
-    path = 'Q'
+    path = 'Race'
 
     # Create Map
     if path == 'Race':
@@ -540,7 +540,7 @@ if __name__ == '__main__':
                                        smoothing_distance=5, max_width=1.5,
                                        n_extension=30, circular=False)
         obs1 = Obstacle(cx=-6.3, cy=-11.1, radius=0.20)
-        obs2 = Obstacle(cx=-2.2, cy=-6.8, radius=1.75)
+        obs2 = Obstacle(cx=-2.2, cy=-6.8, radius=0.25)
         obs3 = Obstacle(cx=1.7, cy=-1.0, radius=0.15)
         obs4 = Obstacle(cx=2.0, cy=-1.2, radius=0.25)
         reference_path.add_obstacles([obs1, obs2, obs3, obs4])
