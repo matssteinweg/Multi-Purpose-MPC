@@ -294,7 +294,7 @@ class SpatialBicycleModel(ABC):
         yaw = np.rad2deg(self.temporal_state.psi)
         # Draw rectangle
         car = plt_patches.Rectangle(cog, width=self.l, height=self.w,
-                              angle=yaw, facecolor=CAR, edgecolor=CAR_OUTLINE)
+                              angle=yaw, facecolor=CAR, edgecolor=CAR_OUTLINE, zorder=20)
 
         # Shift center rectangle to match center of the car
         car.set_x(car.get_x() - (self.l/2 * np.cos(self.temporal_state.psi) -
@@ -306,7 +306,7 @@ class SpatialBicycleModel(ABC):
         safety_margin = plt_patches.Ellipse(cog, width=2*self.safety_margin[0],
                                             height=2*self.safety_margin[1],
                                             angle=yaw,
-                                            fill=False, edgecolor=CAR)
+                                            fill=False, edgecolor=CAR, zorder=20)
 
         # Add rectangle to current axis
         ax = plt.gca()
