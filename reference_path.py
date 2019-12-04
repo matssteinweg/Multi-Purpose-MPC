@@ -316,21 +316,15 @@ class ReferencePath:
                         min_width = cell_dist
                         min_cell = (c_x, c_y)
 
-        # decrease min_width by radius of circle around cell
-        min_width -= 1 / np.sqrt(2) * self.map.resolution
-
         return min_width, min_cell
 
-    def update_bounds(self, car, wp_id):
+    def update_bounds(self, wp_id, safety_margin):
         """
         Compute upper and lower bounds of the drivable area orthogonal to
         the given waypoint.
-        :param car: car model driving on the path
+        :param safety_margin: safety margin of the car orthogonal to path in m
         :param wp_id: ID of reference waypoint
         """
-
-        # Get car-dependent safety margin
-        safety_margin = car.safety_margin
 
         # Get reference waypoint
         wp = self.waypoints[wp_id]
@@ -351,14 +345,14 @@ class ReferencePath:
         ub_ls, lb_ls = ub_p, ub_p
 
         # Iterate over path from left border to right border
-        for x, y in zip(x_list, y_list):
+        for x, y in zip(x_list[1:], y_list[1:]):
             # If cell is free, update lower bound
             if self.map.data[y, x] == 1:
                 lb_o = (x, y)
             # If cell is occupied, end segment. Update best segment if current
             # segment is larger than previous best segment. Then, reset upper
-            # and lower bound to current cell
-            elif self.map.data[y, x] == 0:
+            # and lower bound to current cell.
+            if self.map.data[y, x] == 0 or (x, y) == lb_p:
                 if np.sqrt((ub_o[0]-lb_o[0])**2+(ub_o[1]-lb_o[1])**2) > \
                     np.sqrt((ub_ls[0]-lb_ls[0])**2+(ub_ls[1]-lb_ls[1])**2):
                     ub_ls = ub_o
@@ -367,14 +361,10 @@ class ReferencePath:
                 ub_o = (x, y)
                 lb_o = (x, y)
 
-        # If no segment was set (no obstacle between left and right border),
-        # return original bounds of path
-        if ub_ls == ub_p and lb_ls == ub_p:
-            return wp.lb, wp.ub
-
         # Transform upper and lower bound cells to world coordinates
         ub_ls = self.map.m2w(ub_ls[0], ub_ls[1])
         lb_ls = self.map.m2w(lb_ls[0], lb_ls[1])
+
         # Check sign of upper and lower bound
         angle_ub = np.mod(np.arctan2(ub_ls[1] - wp.y, ub_ls[0] - wp.x)
                           - wp.psi + math.pi, 2*math.pi) - math.pi
@@ -382,13 +372,27 @@ class ReferencePath:
                           - wp.psi + math.pi, 2*math.pi) - math.pi
         sign_ub = np.sign(angle_ub)
         sign_lb = np.sign(angle_lb)
+
         # Compute upper and lower bound of largest drivable area
         ub = sign_ub * np.sqrt((ub_ls[0]-wp.x)**2+(ub_ls[1]-wp.y)**2)
         lb = sign_lb * np.sqrt((lb_ls[0]-wp.x)**2+(lb_ls[1]-wp.y)**2)
 
-        # Add safety margin to bounds
-        ub = ub - (safety_margin[1] + 2 * self.map.resolution)
-        lb = lb + (safety_margin[1] + 2 * self.map.resolution)
+        # Add safety margin (attribute of car) to bounds
+        ub = ub - safety_margin
+        lb = lb + safety_margin
+
+        # Check feasibility of the path
+        if ub < lb:
+            # Upper and lower bound of 0 indicate an infeasible path
+            # given the specified safety margin
+            ub, lb = 0.0, 0.0
+
+        # Compute absolute angle of bound cell
+        angle_ub = np.mod(math.pi/2 + wp.psi + math.pi, 2 * math.pi) - math.pi
+        angle_lb = np.mod(-math.pi/2 + wp.psi + math.pi, 2 * math.pi) - math.pi
+        # Compute cell on bound for computed distance ub and lb
+        ub_ls = wp.x + ub * np.cos(angle_ub), wp.y + ub * np.sin(angle_ub)
+        lb_ls = wp.x - lb * np.cos(angle_lb), wp.y - lb * np.sin(angle_lb)
 
         # Update member variables of waypoint
         wp.ub = ub
@@ -431,6 +435,7 @@ class ReferencePath:
 
         # Plot map in gray-scale and set extent to match world coordinates
         canvas = np.ones(self.map.data.shape)
+        canvas = np.flipud(self.map.data)
         plt.imshow(canvas, cmap='gray',
                    extent=[self.map.origin[0], self.map.origin[0] +
                            self.map.width * self.map.resolution,
@@ -487,8 +492,8 @@ class ReferencePath:
         else:
             plt.plot(bl_x[:-1], bl_y[:-1], color=OBSTACLE)
             plt.plot(br_x[:-1], br_y[:-1], color=OBSTACLE)
-            plt.plot((bl_x[-2],br_x[-2]), (bl_y[-2], br_y[-2]), color=OBSTACLE)
-            plt.plot((bl_x[0],br_x[0]), (bl_y[0], br_y[0]), color=OBSTACLE)
+            plt.plot((bl_x[-2], br_x[-2]), (bl_y[-2], br_y[-2]), color=OBSTACLE)
+            plt.plot((bl_x[0], br_x[0]), (bl_y[0], br_y[0]), color=OBSTACLE)
 
         # Plot obstacles
         for obstacle in self.obstacles:
@@ -535,7 +540,7 @@ if __name__ == '__main__':
                                        smoothing_distance=5, max_width=1.5,
                                        n_extension=30, circular=False)
         obs1 = Obstacle(cx=-6.3, cy=-11.1, radius=0.20)
-        obs2 = Obstacle(cx=-2.2, cy=-6.8, radius=0.25)
+        obs2 = Obstacle(cx=-2.2, cy=-6.8, radius=1.75)
         obs3 = Obstacle(cx=1.7, cy=-1.0, radius=0.15)
         obs4 = Obstacle(cx=2.0, cy=-1.2, radius=0.25)
         reference_path.add_obstacles([obs1, obs2, obs3, obs4])
@@ -545,6 +550,8 @@ if __name__ == '__main__':
         print('Invalid path!')
         exit(1)
 
+    [reference_path.update_bounds(wp_id=wp_id, safety_margin=0.02)
+     for wp_id in range(len(reference_path.waypoints))]
     reference_path.show()
     plt.show()
 
