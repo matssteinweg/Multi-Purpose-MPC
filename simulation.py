@@ -5,6 +5,8 @@ from spatial_bicycle_models import BicycleModel
 import matplotlib.pyplot as plt
 from MPC import MPC
 from scipy import sparse
+from time import time
+from lidar_model import LidarModel
 
 
 if __name__ == '__main__':
@@ -24,7 +26,7 @@ if __name__ == '__main__':
         path_resolution = 0.05  # m / wp
         # Create smoothed reference path
         reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
-                                       smoothing_distance=5, max_width=0.22,
+                                       smoothing_distance=5, max_width=0.23,
                                        n_extension=50, circular=True)
     elif sim_mode == 'Q':
         map = Map(file_path='map_floor2.png')
@@ -82,6 +84,12 @@ if __name__ == '__main__':
                         'xmax': np.array([np.inf, np.inf, np.inf])}
     mpc = MPC(car, N, Q, R, QN, StateConstraints, InputConstraints)
 
+    #########
+    # LiDAR #
+    #########
+
+    sensor = LidarModel(FoV=90, range=0.25, resolution=4.0)
+
     ##############
     # Simulation #
     ##############
@@ -99,10 +107,16 @@ if __name__ == '__main__':
     while car.s < reference_path.length:
 
         # get control signals
+        start = time()
         u = mpc.get_control(v)
+        end = time()
+        print('Control time: ', end-start)
 
         # drive car
         car.drive(u)
+
+        # scan
+        scan = sensor.scan(car.temporal_state, map)
 
         # log
         x_log.append(car.temporal_state.x)
@@ -115,6 +129,9 @@ if __name__ == '__main__':
         # Plot path and drivable area
         reference_path.show()
 
+        # Plot scan
+        sensor.plot_scan(car.temporal_state)
+
         # Plot MPC prediction
         mpc.show_prediction()
 
@@ -123,7 +140,8 @@ if __name__ == '__main__':
 
         t += Ts
 
-        plt.title('MPC Simulation: Distance: {:.2f}m/{:.2f} m, Duration: {:.2f} s'.
+        plt.title('MPC Simulation: Distance: {:.2f}m/{:.2f} m, Duration: '
+                  '{:.2f} s'.
                   format(car.s, car.reference_path.length, t))
         if t == Ts:
             plt.show()
