@@ -98,8 +98,8 @@ class MPC:
             ur[n] = kappa_r
             # Compute equality constraint offset (B*ur)
             uq[n * nx:n * nx + nx] = B_lin[:, 0] * kappa_r
-            lb, ub = self.model.reference_path.update_bounds(self.model,
-                self.model.wp_id + n)
+            lb, ub = self.model.reference_path.update_bounds(
+                self.model.wp_id + n, self.model.safety_margin[1])
             xmin_dyn[nx * n] = lb
             xmax_dyn[nx * n] = ub
 
