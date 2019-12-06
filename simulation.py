@@ -23,10 +23,10 @@ if __name__ == '__main__':
         wp_y = [-1.5, -1.5, -0.5, -0.5, -1.5, -1.5, -1, -1, -0.5, -0.5, 0, 0,
                 -1.5, -1.5]
         # Specify path resolution
-        path_resolution = 0.01  # m / wp
+        path_resolution = 0.05  # m / wp
         # Create smoothed reference path
         reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
-                                       smoothing_distance=25, max_width=0.23,
+                                       smoothing_distance=5, max_width=0.23,
                                        n_extension=50, circular=True)
     elif sim_mode == 'Q':
         map = Map(file_path='map_floor2.png')
@@ -65,7 +65,7 @@ if __name__ == '__main__':
     e_y_0 = 0.0
     e_psi_0 = 0.0
     t_0 = 0.0
-    v_x = 1.0
+    v_x = 0.5
     v_y = 0.0
     omega = 0.0
 
@@ -78,11 +78,11 @@ if __name__ == '__main__':
     ##############
 
     N = 30
-    Q = sparse.diags([1.0, 0.0, 0.1, 0.0, 0.0, 0.0])
-    R = sparse.diags([0.1, 0.0])
+    Q = sparse.diags([1.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    R = sparse.diags([0.0, 0.0])
     QN = Q
-    InputConstraints = {'umin': np.array([-1.0, -np.tan(0.66)/car.l]),
-                        'umax': np.array([1.0, np.tan(0.66)/car.l])}
+    InputConstraints = {'umin': np.array([-1.0, -0.66]),
+                        'umax': np.array([1.0, 0.66])}
     StateConstraints = {'xmin': np.array([-np.inf, -np.inf, -np.inf, -np.inf, -np.inf, -np.inf]),
                         'xmax': np.array([np.inf, np.inf, np.inf, np.inf, np.inf, np.inf])}
     mpc = MPC(car, N, Q, R, QN, StateConstraints, InputConstraints)
@@ -105,7 +105,6 @@ if __name__ == '__main__':
 
         # get control signals
         u = mpc.get_control()
-
         # drive car
         car.drive(u)
         print(u)
@@ -132,6 +131,6 @@ if __name__ == '__main__':
         plt.title('MPC Simulation: Distance: {:.2f}m/{:.2f} m, Duration: '
                   '{:.2f} s'.
                   format(car.s, car.reference_path.length, t))
-        plt.pause(0.0001)
+        plt.show()
     print('Final Time: {:.2f}'.format(t))
     plt.close()

@@ -41,6 +41,13 @@ class TemporalState:
 
         self.members = ['x', 'y', 'psi', 'v_x', 'v_y', 'omega', 't']
 
+    def __getitem__(self, item):
+        if isinstance(item, int):
+            members = [self.members[item]]
+        else:
+            members = self.members[item]
+        return [vars(self)[key] for key in members]
+
     def __iadd__(self, other):
         """
         Overload Sum-Add operator.
@@ -180,6 +187,7 @@ class SpatialBicycleModel(ABC):
             y = self.current_waypoint.y + self.spatial_state.e_y * np.cos(
                 self.current_waypoint.psi)
             psi = self.current_waypoint.psi + self.spatial_state.e_psi
+            psi = np.mod(psi + math.pi, 2 * math.pi) - math.pi
 
         else:
 
@@ -189,10 +197,11 @@ class SpatialBicycleModel(ABC):
             y = reference_waypoint.y + reference_state[0] * np.cos(
                 reference_waypoint.psi)
             psi = reference_waypoint.psi + reference_state[1]
+            psi = np.mod(psi + math.pi, 2 * math.pi) - math.pi
 
         return x, y, psi
 
-    def t2s(self):
+    def t2s(self, state=None, reference_wp=None):
         """
         Convert spatial state to temporal state. Either convert self.spatial_
         state with current waypoint as reference or provide reference waypoint
@@ -200,17 +209,25 @@ class SpatialBicycleModel(ABC):
         :return x, y, psi
         """
 
-        # compute temporal state variables
-        e_y = np.cos(self.current_waypoint.psi) * \
-              (self.temporal_state.y - self.current_waypoint.y) - \
-        np.sin(self.current_waypoint.psi) * (self.temporal_state.x -
-                                             self.current_waypoint.x)
-        e_psi = self.temporal_state.psi - self.current_waypoint.psi
-        e_psi = np.mod(e_psi + math.pi, 2*math.pi) - math.pi
-        t = 0
-        v_x = self.temporal_state.v_x
-        v_y = self.temporal_state.v_y
-        omega = self.temporal_state.omega
+        if state is None and reference_wp is None:
+            # compute temporal state variables
+            e_y = np.cos(self.current_waypoint.psi) * \
+                  (self.temporal_state.y - self.current_waypoint.y) - \
+            np.sin(self.current_waypoint.psi) * (self.temporal_state.x -
+                                                 self.current_waypoint.x)
+            e_psi = self.temporal_state.psi - self.current_waypoint.psi
+            e_psi = np.mod(e_psi + math.pi, 2*math.pi) - math.pi
+            t = self.temporal_state.t
+            v_x = self.temporal_state.v_x
+            v_y = self.temporal_state.v_y
+            omega = self.temporal_state.omega
+        else:
+            x, y, psi, v_x, v_y, omega, t = state
+            e_y = np.cos(reference_wp.psi) * \
+                  (y - reference_wp.y) - \
+                  np.sin(reference_wp.psi) * (x - reference_wp.x)
+            e_psi = psi - reference_wp.psi
+            e_psi = np.mod(e_psi + math.pi, 2 * math.pi) - math.pi
 
         return ExtendedSpatialState(e_y, e_psi, v_x, v_y, omega, t)
 
@@ -221,33 +238,9 @@ class SpatialBicycleModel(ABC):
         """
         self.Ts = Ts
 
+    @abstractmethod
     def drive(self, u):
-        """
-        Drive.
-        :param u: input vector
-        :return: numpy array with spatial derivatives for all state variables
-        """
-
-        # Get input signals
-        v, delta = u
-
-        # Compute temporal state derivatives
-        x_dot = v * np.cos(self.temporal_state.psi)
-        y_dot = v * np.sin(self.temporal_state.psi)
-        psi_dot = v / self.l * np.tan(delta)
-        temporal_derivatives = np.array([x_dot, y_dot, psi_dot, 0.0, 0.0, 0.0, 0.0])
-
-        # Update spatial state (Forward Euler Approximation)
-        self.temporal_state += temporal_derivatives * self.Ts
-
-        # Compute velocity along path
-        s_dot = 1 / (1 - self.spatial_state.e_y * self.current_waypoint.kappa) \
-                * v * np.cos(self.spatial_state.e_psi)
-
-        # Update distance travelled along reference path
-        self.s += s_dot * self.Ts
-
-        self.wp_id += 1
+        pass
 
     def _compute_safety_margin(self):
         """
@@ -285,19 +278,6 @@ class SpatialBicycleModel(ABC):
         else:
             self.wp_id = prev_wp_id
             self.current_waypoint = self.reference_path.waypoints[prev_wp_id]
-        #
-        # # Weight for next waypoint
-        # w = (s_next - self.s) / (s_next - s_prev)
-        #
-        # # Interpolate between the two waypoints
-        # prev_wp = self.reference_path.waypoints[prev_wp_id]
-        # next_wp = self.reference_path.waypoints[next_wp_id]
-        # x = w * next_wp.x + (1 - w) * prev_wp.x
-        # y = w * next_wp.y + (1 - w) * prev_wp.y
-        # psi = w * next_wp.psi + (1 - w) * prev_wp.psi
-        # kappa = w * next_wp.kappa + (1 - w) * prev_wp.kappa
-
-
 
     def show(self):
         """
@@ -334,7 +314,7 @@ class SpatialBicycleModel(ABC):
         pass
 
     @abstractmethod
-    def linearize(self):
+    def linearize(self, state, input, kappa, delta_s):
         pass
 
 
@@ -398,39 +378,48 @@ class BicycleModel(SpatialBicycleModel):
             # Get pose information from base class implementation
             x, y, psi = super(BicycleModel, self).s2t()
             # Compute simplified velocities
+            v_x = self.spatial_state.v_x
+            v_y = self.spatial_state.v_y
+            omega = self.spatial_state.omega
+            t = self.spatial_state.t
+
         else:
             # Get pose information from base class implementation
             x, y, psi = super(BicycleModel, self).s2t(reference_waypoint,
                                                             reference_state)
-
-        v_x = self.spatial_state.v_x
-        v_y = self.spatial_state.v_y
-        omega = self.spatial_state.omega
-        t = self.spatial_state.omega
+            v_x = reference_state[2]
+            v_y = reference_state[3]
+            omega = reference_state[4]
+            t = reference_state[5]
 
         return TemporalState(x, y, psi, v_x, v_y, omega, t)
 
-    def get_forces(self, input):
+    def get_forces(self, state, input):
         """
         Compute forces required for temporal derivatives of v_x and v_y
-        :param delta:
-        :param D:
-        :return:
+        :param input: np array containing [D, delta]
+        :param state: state
+        :return: all relevant forces and intermediate values
         """
 
+        # Get input and state components
         D, delta = input
+        e_y, e_psi, v_x, v_y, omega, t = state
 
-        F_rx = (self.Cm1 - self.Cm2 * self.spatial_state.v_x) * D - \
-               self.Cr0 - self.Cr2 * self.spatial_state.v_x ** 2
+        # Compute F_rx
+        F_rx = (self.Cm1 - self.Cm2 * v_x) * D - \
+               self.Cr0 - self.Cr2 * v_x ** 2
 
-        alpha_f = - np.arctan2(
-            self.spatial_state.omega * self.lf + self.spatial_state.v_y,
-            self.spatial_state.v_x) + delta
+        # Compute alpha_f
+        alpha_f = - np.arctan2(omega * self.lf + v_y, v_x) + delta
+
+        # Compute F_fy
         F_fy = self.Df * np.sin(self.Cf * np.arctan(self.Bf * alpha_f))
 
-        alpha_r = np.arctan2(
-            self.spatial_state.omega * self.lr - self.spatial_state.v_y,
-            self.spatial_state.v_x)
+        # Compute alpha_r
+        alpha_r = np.arctan2(omega * self.lr - v_y, v_x)
+
+        # Compute F_ry
         F_ry = self.Dr * np.sin(self.Cr * np.arctan(self.Br * alpha_r))
 
         return F_rx, F_fy, F_ry, alpha_f, alpha_r
@@ -438,20 +427,23 @@ class BicycleModel(SpatialBicycleModel):
     def get_temporal_derivatives(self, state, input, kappa, forces):
             """
             Compute temporal derivatives needed for state update.
-            :param delta: steering command
-            :param D: duty-cycle of DC motor
+            :param state: state
+            :param input: input
+            :param kappa: current kappa
+            :param forces: forces
             :return: temporal derivatives of distance, angle and velocity
             """
 
+            # Get state, input and force components
             e_y, e_psi, v_x, v_y, omega, t = state
             D, delta = input
             F_rx, F_fy, F_ry = forces
 
-            # velocity along path
+            # Compute velocity along path
             s_dot = 1 / (1 - (e_y * kappa)) * (v_x * np.cos(e_psi)
-                       + v_y * np.sin(e_psi))
+                       - v_y * np.sin(e_psi))
 
-            # velocity in x and y direction
+            # Compute acceleration in x and y direction
             v_x_dot = (F_rx - F_fy * np.sin(
                 delta) + self.m * v_y * omega) / self.m
             v_y_dot = (F_ry + F_fy * np.cos(
@@ -466,29 +458,24 @@ class BicycleModel(SpatialBicycleModel):
     def get_spatial_derivatives(self, state, input, kappa):
         """
         Compute spatial derivatives of all state variables for update.
-        :param delta: steering angle
-        :param psi_dot: heading rate of change
-        :param s_dot: velocity along path
-        :param v_dot: acceleration
         :return: spatial derivatives for all state variables
         """
 
+        # Get state and input components
         e_y, e_psi, v_x, v_y, omega, t = state
         D, delta = input
 
-        # get required forces
-        F_rx, F_fy, F_ry, _, _ = self.get_forces(input)
+        # Get required forces
+        F_rx, F_fy, F_ry, _, _ = self.get_forces(input, state)
         forces = np.array([F_rx, F_fy, F_ry])
 
         # Compute state derivatives
         s_dot, v_x_dot, v_y_dot, omega_dot = \
             self.get_temporal_derivatives(state, input, kappa, forces)
 
-        d_e_y = (v_x * np.sin(e_psi)
-                 + v_y * np.cos(e_psi)) \
-                / (s_dot + self.eps)
+        # Compute spatial derivatives
+        d_e_y = (v_x * np.sin(e_psi) + v_y * np.cos(e_psi)) / (s_dot + self.eps)
         d_e_psi = (omega / (s_dot + self.eps) - kappa)
-
         d_v_x = v_x_dot / (s_dot + self.eps)
         d_v_y = v_y_dot / (s_dot + self.eps)
         d_omega = omega_dot / (s_dot + self.eps)
@@ -499,9 +486,13 @@ class BicycleModel(SpatialBicycleModel):
     def linearize(self, state, input, kappa, delta_s):
         """
         Linearize the system equations around the current state and waypoint.
-        :param kappa_r: kappa of waypoint around which to linearize
+        :param state: state
+        :param input: input
+        :param kappa: kappa of waypoint around which to linearize
+        :param delta_s: delta_s
          """
 
+        # Get input and state components
         D, delta = input
         e_y, e_psi, v_x, v_y, omega, t = state
 
@@ -509,9 +500,11 @@ class BicycleModel(SpatialBicycleModel):
         # System Matrices #
         ###################
 
-        # get temporal derivatives
-        F_rx, F_fy, F_ry, alpha_f, alpha_r = self.get_forces(input)
+        # Get forces
+        F_rx, F_fy, F_ry, alpha_f, alpha_r = self.get_forces(state, input)
         forces = np.array([F_rx, F_fy, F_ry])
+
+        # Get temporal derivatives
         s_dot, v_x_dot, v_y_dot, omega_dot = self. \
             get_temporal_derivatives(state, input, kappa, forces)
 
@@ -709,10 +702,10 @@ class BicycleModel(SpatialBicycleModel):
         d_t_d_D = 0
 
         # compute f
-        e_y_dot = c_1 / s_dot
-        e_psi_dot = omega / s_dot - kappa
-        t_dot = 1 / s_dot
-        f = np.array([e_y_dot, e_psi_dot, v_x_dot/s_dot, v_y_dot/s_dot, omega_dot/s_dot, t_dot]) * delta_s
+        e_y_prime = c_1 / s_dot
+        e_psi_prime = omega / s_dot - kappa
+        t_prime = 1 / s_dot
+        f = np.array([e_y_prime, e_psi_prime, v_x_dot/s_dot, v_y_dot/s_dot, omega_dot/s_dot, t_prime]) * delta_s
 
         a_1 = np.array([d_e_y_d_e_y, d_e_y_d_e_psi, d_e_y_d_v_x, d_e_y_d_v_y,
                         d_e_y_d_omega, d_e_y_d_t])
@@ -746,3 +739,39 @@ class BicycleModel(SpatialBicycleModel):
 
         # set system matrices
         return f, A, B
+
+    def drive(self, u):
+        """
+        Drive.
+        :param u: input vector
+        :return: numpy array with spatial derivatives for all state variables
+        """
+
+        # Get input signals
+        state = np.array(self.spatial_state[:])
+        x, y, psi, v_x, v_y, omega, t = np.array(self.temporal_state[:])
+        kappa = self.current_waypoint.kappa
+
+        # Compute temporal state derivatives
+        x_dot = v_x * np.cos(psi) - v_y * np.sin(psi)
+        y_dot = v_x * np.sin(psi) + v_y * np.cos(psi)
+        psi_dot = omega
+
+        # Get forces
+        F_rx, F_fy, F_ry, alpha_f, alpha_r = self.get_forces(state, u)
+        forces = np.array([F_rx, F_fy, F_ry])
+        # Get temporal derivatives
+        s_dot, v_x_dot, v_y_dot, omega_dot = self. \
+            get_temporal_derivatives(state, u, kappa, forces)
+
+        # Combine all temporal derivatives
+        temporal_derivatives = np.array([x_dot, y_dot, psi_dot, v_x_dot,
+                                         v_y_dot, omega_dot, 1/s_dot])
+
+        # Update spatial state (Forward Euler Approximation)
+        self.temporal_state += temporal_derivatives * self.Ts
+
+        # Update distance travelled along reference path
+        self.s += s_dot * self.Ts
+
+        self.wp_id += 1

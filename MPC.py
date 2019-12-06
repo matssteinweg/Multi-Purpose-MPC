@@ -45,7 +45,7 @@ class MPC:
         self.infeasibility_counter = 0
 
         # Current control signals
-        self.current_control = None
+        self.current_control = np.zeros((2*self.N))
 
         # Initialize Optimization Problem
         self.optimizer = osqp.OSQP()
@@ -73,13 +73,11 @@ class MPC:
         xr = np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
         # Offset for equality constraint (due to B * (u - ur))
         uq = np.zeros(self.N * nx)
-        # Vectors to linearize around
-        x_lin = np.array([0.0, 0.0, self.model.spatial_state.v_x, 0.0, 0.0, 0.0])
-        u_lin = np.array([0.0, 0.0])
 
         # Dynamic state constraints
         xmin_dyn = np.kron(np.ones(self.N + 1), xmin)
         xmax_dyn = np.kron(np.ones(self.N + 1), xmax)
+        x_lin = np.array(self.model.spatial_state[:])
 
         # Iterate over horizon
         for n in range(self.N):
@@ -91,6 +89,9 @@ class MPC:
                 self.model.wp_id + n + 1]
             delta_s = next_waypoint - current_waypoint
             kappa_r = current_waypoint.kappa
+            # Vectors to linearize around
+            u_lin = np.array(self.current_control[nu * n:n * nu + nu])
+            #x_lin = np.array(self.model.t2s(x_lin, current_waypoint)[:])
 
             # Compute LTV matrices
             f, A_lin, B_lin = self.model.linearize(x_lin, u_lin, kappa_r, delta_s)
@@ -100,11 +101,13 @@ class MPC:
             # Set kappa_r to reference for input signal
             # ur[n] = kappa_r
             # Compute equality constraint offset (B*ur)
-            uq[n * nx:n * nx + nx] = -f + A_lin.dot(x_lin)
+            uq[n * nx:n * nx + nx] = -f + A_lin.dot(x_lin) + B_lin.dot(u_lin)
             lb, ub = self.model.reference_path.update_bounds(
                 self.model.wp_id + n, self.model.safety_margin[1])
             xmin_dyn[nx * n] = lb
             xmax_dyn[nx * n] = ub
+            #x_lin += f
+            #x_lin = np.array(self.model.s2t(current_waypoint, x_lin)[:])
 
         # Get equality matrix
         Ax = sparse.kron(sparse.eye(self.N + 1),
@@ -138,7 +141,7 @@ class MPC:
 
         # Initialize optimizer
         self.optimizer = osqp.OSQP()
-        self.optimizer.setup(P=P, q=q, A=A, l=l, u=u, verbose=False)
+        self.optimizer.setup(P=P, q=q, A=A, l=l, u=u, verbose=True)
 
     def get_control(self):
         """
@@ -165,7 +168,7 @@ class MPC:
         try:
 
             # Get control signals
-            cs = np.arctan(dec.x[-self.N*nu:] * self.model.l)
+            cs = dec.x[-self.N*nu:]
             D, delta = cs[0], cs[1]
 
             # Update control signals
@@ -209,7 +212,6 @@ class MPC:
 
         # containers for x and y coordinates of predicted states
         x_pred, y_pred = [], []
-        print(spatial_state_prediction)
 
         # get current waypoint ID
         #print('#########################')
@@ -218,6 +220,7 @@ class MPC:
             associated_waypoint = self.model.reference_path.waypoints[self.model.wp_id+n]
             predicted_temporal_state = self.model.s2t(associated_waypoint,
                                             spatial_state_prediction[n, :])
+            print(spatial_state_prediction[n, 2])
 
             #print('delta: ', u)
             #print('e_y: ', spatial_state_prediction[n, 0])
