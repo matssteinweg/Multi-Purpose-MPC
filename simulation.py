@@ -23,10 +23,10 @@ if __name__ == '__main__':
         wp_y = [-1.5, -1.5, -0.5, -0.5, -1.5, -1.5, -1, -1, -0.5, -0.5, 0, 0,
                 -1.5, -1.5]
         # Specify path resolution
-        path_resolution = 0.05  # m / wp
+        path_resolution = 0.01  # m / wp
         # Create smoothed reference path
         reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
-                                       smoothing_distance=5, max_width=0.23,
+                                       smoothing_distance=25, max_width=0.23,
                                        n_extension=50, circular=True)
     elif sim_mode == 'Q':
         map = Map(file_path='map_floor2.png')
@@ -65,30 +65,27 @@ if __name__ == '__main__':
     e_y_0 = 0.0
     e_psi_0 = 0.0
     t_0 = 0.0
-    v = 1.0
+    v_x = 1.0
+    v_y = 0.0
+    omega = 0.0
 
     car = BicycleModel(length=0.12, width=0.06, reference_path=reference_path,
-                       e_y=e_y_0, e_psi=e_psi_0, t=t_0)
+                       e_y=e_y_0, e_psi=e_psi_0, v_x=v_x, v_y=v_y, omega=omega,
+                       t=t_0)
 
     ##############
     # Controller #
     ##############
 
     N = 30
-    Q = sparse.diags([1.0, 0.0, 0.0])
-    R = sparse.diags([0.01])
+    Q = sparse.diags([1.0, 0.0, 0.1, 0.0, 0.0, 0.0])
+    R = sparse.diags([0.1, 0.0])
     QN = Q
-    InputConstraints = {'umin': np.array([-np.tan(0.66)/car.l]),
-                        'umax': np.array([np.tan(0.66)/car.l])}
-    StateConstraints = {'xmin': np.array([-np.inf, -np.inf, -np.inf]),
-                        'xmax': np.array([np.inf, np.inf, np.inf])}
+    InputConstraints = {'umin': np.array([-1.0, -np.tan(0.66)/car.l]),
+                        'umax': np.array([1.0, np.tan(0.66)/car.l])}
+    StateConstraints = {'xmin': np.array([-np.inf, -np.inf, -np.inf, -np.inf, -np.inf, -np.inf]),
+                        'xmax': np.array([np.inf, np.inf, np.inf, np.inf, np.inf, np.inf])}
     mpc = MPC(car, N, Q, R, QN, StateConstraints, InputConstraints)
-
-    #########
-    # LiDAR #
-    #########
-
-    sensor = LidarModel(FoV=90, range=0.25, resolution=4.0)
 
     ##############
     # Simulation #
@@ -107,16 +104,11 @@ if __name__ == '__main__':
     while car.s < reference_path.length:
 
         # get control signals
-        start = time()
-        u = mpc.get_control(v)
-        end = time()
-        print('Control time: ', end-start)
+        u = mpc.get_control()
 
         # drive car
         car.drive(u)
-
-        # scan
-        scan = sensor.scan(car.temporal_state, map)
+        print(u)
 
         # log
         x_log.append(car.temporal_state.x)
@@ -129,9 +121,6 @@ if __name__ == '__main__':
         # Plot path and drivable area
         reference_path.show()
 
-        # Plot scan
-        sensor.plot_scan(car.temporal_state)
-
         # Plot MPC prediction
         mpc.show_prediction()
 
@@ -143,8 +132,6 @@ if __name__ == '__main__':
         plt.title('MPC Simulation: Distance: {:.2f}m/{:.2f} m, Duration: '
                   '{:.2f} s'.
                   format(car.s, car.reference_path.length, t))
-        if t == Ts:
-            plt.show()
         plt.pause(0.0001)
     print('Final Time: {:.2f}'.format(t))
     plt.close()

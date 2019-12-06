@@ -50,14 +50,14 @@ class MPC:
         # Initialize Optimization Problem
         self.optimizer = osqp.OSQP()
 
-    def _init_problem(self, v):
+    def _init_problem(self):
         """
         Initialize optimization problem for current time step.
         """
 
         # Number of state and input variables
         nx = self.model.n_states
-        nu = 1
+        nu = 2
 
         # Constraints
         umin = self.input_constraints['umin']
@@ -69,10 +69,13 @@ class MPC:
         A = np.zeros((nx * (self.N + 1), nx * (self.N + 1)))
         B = np.zeros((nx * (self.N + 1), nu * (self.N)))
         # Reference vector for state and input variables
-        ur = np.zeros(self.N)
-        xr = np.array([0.0, 0.0, -1.0])
+        ur = np.array([0.0, 0.0])
+        xr = np.array([0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
         # Offset for equality constraint (due to B * (u - ur))
         uq = np.zeros(self.N * nx)
+        # Vectors to linearize around
+        x_lin = np.array([0.0, 0.0, self.model.spatial_state.v_x, 0.0, 0.0, 0.0])
+        u_lin = np.array([0.0, 0.0])
 
         # Dynamic state constraints
         xmin_dyn = np.kron(np.ones(self.N + 1), xmin)
@@ -90,14 +93,14 @@ class MPC:
             kappa_r = current_waypoint.kappa
 
             # Compute LTV matrices
-            A_lin, B_lin = self.model.linearize(v, kappa_r, delta_s)
+            f, A_lin, B_lin = self.model.linearize(x_lin, u_lin, kappa_r, delta_s)
             A[nx + n * nx:n * nx + 2 * nx, n * nx:n * nx + nx] = A_lin
             B[nx + n * nx:n * nx + 2 * nx, n * nu:n * nu + nu] = B_lin
 
             # Set kappa_r to reference for input signal
-            ur[n] = kappa_r
+            # ur[n] = kappa_r
             # Compute equality constraint offset (B*ur)
-            uq[n * nx:n * nx + nx] = B_lin[:, 0] * kappa_r
+            uq[n * nx:n * nx + nx] = -f + A_lin.dot(x_lin)
             lb, ub = self.model.reference_path.update_bounds(
                 self.model.wp_id + n, self.model.safety_margin[1])
             xmin_dyn[nx * n] = lb
@@ -131,13 +134,13 @@ class MPC:
              sparse.kron(sparse.eye(self.N), self.R)], format='csc')
         q = np.hstack(
             [np.kron(np.ones(self.N), -self.Q.dot(xr)), -self.QN.dot(xr),
-             -self.R.A[0, 0] * ur])
+             np.kron(np.ones(self.N), -self.R.dot(ur))])
 
         # Initialize optimizer
         self.optimizer = osqp.OSQP()
         self.optimizer.setup(P=P, q=q, A=A, l=l, u=u, verbose=False)
 
-    def get_control(self, v):
+    def get_control(self):
         """
         Get control signal given the current position of the car. Solves a
         finite time optimization problem based on the linearized car model.
@@ -145,6 +148,7 @@ class MPC:
 
         # Number of state variables
         nx = self.model.n_states
+        nu = 2
 
         # Update current waypoint
         self.model.get_current_waypoint()
@@ -153,18 +157,19 @@ class MPC:
         self.model.spatial_state = self.model.t2s()
 
         # Initialize optimization problem
-        self._init_problem(v)
+        self._init_problem()
 
         # Solve optimization problem
         dec = self.optimizer.solve()
 
         try:
+
             # Get control signals
-            deltas = np.arctan(dec.x[-self.N:] * self.model.l)
-            delta = deltas[0]
+            cs = np.arctan(dec.x[-self.N*nu:] * self.model.l)
+            D, delta = cs[0], cs[1]
 
             # Update control signals
-            self.current_control = deltas
+            self.current_control = cs
 
             # Get predicted spatial states
             x = np.reshape(dec.x[:(self.N+1)*nx], (self.N+1, nx))
@@ -172,7 +177,7 @@ class MPC:
             self.current_prediction = self.update_prediction(delta, x)
 
             # Get current control signal
-            u = np.array([v, delta])
+            u = np.array([D, delta])
 
             # if problem solved, reset infeasibility counter
             self.infeasibility_counter = 0
@@ -181,7 +186,8 @@ class MPC:
 
             print('Infeasible problem. Previously predicted'
                   ' control signal used!')
-            u = np.array([v, self.current_control
+            u = np.array([self.current_control
+            [self.infeasibility_counter], self.current_control
             [self.infeasibility_counter+1]])
 
             # increase infeasibility counter
@@ -203,6 +209,7 @@ class MPC:
 
         # containers for x and y coordinates of predicted states
         x_pred, y_pred = [], []
+        print(spatial_state_prediction)
 
         # get current waypoint ID
         #print('#########################')

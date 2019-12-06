@@ -16,12 +16,13 @@ import math
 CAR = '#F1C40F'
 CAR_OUTLINE = '#B7950B'
 
+
 #########################
 # Temporal State Vector #
 #########################
 
 class TemporalState:
-    def __init__(self, x, y, psi):
+    def __init__(self, x, y, psi, v_x, v_y, omega, t):
         """
         Temporal State Vector containing car pose (x, y, psi) and velocity
         :param x: x position in global coordinate system | [m]
@@ -33,8 +34,12 @@ class TemporalState:
         self.x = x
         self.y = y
         self.psi = psi
+        self.v_x = v_x
+        self.v_y = v_y
+        self.omega = omega
+        self.t = t
 
-        self.members = ['x', 'y', 'psi']
+        self.members = ['x', 'y', 'psi', 'v_x', 'v_y', 'omega', 't']
 
     def __iadd__(self, other):
         """
@@ -91,22 +96,28 @@ class SpatialState(ABC):
         return self.members
 
 
-class SimpleSpatialState(SpatialState):
-    def __init__(self, e_y, e_psi, t):
+class ExtendedSpatialState(SpatialState):
+    def __init__(self, e_y, e_psi, v_x, v_y, omega, t):
         """
-        Simplified Spatial State Vector containing orthogonal deviation from
-        reference path (e_y), difference in orientation (e_psi) and velocity
+        Extended Spatial State Vector containing separate velocities in x and
+        y direction, angular velocity and time
         :param e_y: orthogonal deviation from center-line | [m]
         :param e_psi: yaw angle relative to path | [rad]
-        :param t: time | [s]
+        :param v_x: velocity in x direction (car frame) | [m/s]
+        :param v_y: velocity in y direction (car frame) | [m/s]
+        :param omega: anglular velocity of the car | [rad/s]
+        :param t: simulation time| [s]
         """
-        super(SimpleSpatialState, self).__init__()
+        super(ExtendedSpatialState, self).__init__()
 
         self.e_y = e_y
         self.e_psi = e_psi
+        self.v_x = v_x
+        self.v_y = v_y
+        self.omega = omega
         self.t = t
 
-        self.members = ['e_y', 'e_psi', 't']
+        self.members = ['e_y', 'e_psi', 'v_x', 'v_y', 'omega', 't']
 
 
 ####################################
@@ -197,8 +208,11 @@ class SpatialBicycleModel(ABC):
         e_psi = self.temporal_state.psi - self.current_waypoint.psi
         e_psi = np.mod(e_psi + math.pi, 2*math.pi) - math.pi
         t = 0
+        v_x = self.temporal_state.v_x
+        v_y = self.temporal_state.v_y
+        omega = self.temporal_state.omega
 
-        return SimpleSpatialState(e_y, e_psi, t)
+        return ExtendedSpatialState(e_y, e_psi, v_x, v_y, omega, t)
 
     def set_sampling_time(self, Ts):
         """
@@ -221,7 +235,7 @@ class SpatialBicycleModel(ABC):
         x_dot = v * np.cos(self.temporal_state.psi)
         y_dot = v * np.sin(self.temporal_state.psi)
         psi_dot = v / self.l * np.tan(delta)
-        temporal_derivatives = np.array([x_dot, y_dot, psi_dot])
+        temporal_derivatives = np.array([x_dot, y_dot, psi_dot, 0.0, 0.0, 0.0, 0.0])
 
         # Update spatial state (Forward Euler Approximation)
         self.temporal_state += temporal_derivatives * self.Ts
@@ -232,6 +246,8 @@ class SpatialBicycleModel(ABC):
 
         # Update distance travelled along reference path
         self.s += s_dot * self.Ts
+
+        self.wp_id += 1
 
     def _compute_safety_margin(self):
         """
@@ -327,7 +343,7 @@ class SpatialBicycleModel(ABC):
 #################
 
 class BicycleModel(SpatialBicycleModel):
-    def __init__(self, length, width, reference_path, e_y, e_psi, t):
+    def __init__(self, length, width, reference_path, e_y, e_psi, v_x, v_y, omega, t):
         """
         Simplified Spatial Bicycle Model. Spatial Reformulation of Kinematic
         Bicycle Model. Uses Simplified Spatial State.
@@ -342,8 +358,26 @@ class BicycleModel(SpatialBicycleModel):
         super(BicycleModel, self).__init__(reference_path, length=length,
                                            width=width)
 
+        # Constants
+        self.m = 0.041
+        self.Iz = 27.8e-6
+        self.lf = 0.029
+        self.lr = 0.033
+
+        self.Cm1 = 0.287
+        self.Cm2 = 0.0545
+        self.Cr2 = 0.0518
+        self.Cr0 = 0.00035
+
+        self.Br = 3.3852
+        self.Cr = 1.2691
+        self.Dr = 0.1737
+        self.Bf = 2.579
+        self.Cf = 1.2
+        self.Df = 0.192
+
         # Initialize spatial state
-        self.spatial_state = SimpleSpatialState(e_y, e_psi, t)
+        self.spatial_state = ExtendedSpatialState(e_y, e_psi, v_x, v_y, omega, t)
 
         # Number of spatial state variables
         self.n_states = len(self.spatial_state)
@@ -369,78 +403,346 @@ class BicycleModel(SpatialBicycleModel):
             x, y, psi = super(BicycleModel, self).s2t(reference_waypoint,
                                                             reference_state)
 
-        return TemporalState(x, y, psi)
+        v_x = self.spatial_state.v_x
+        v_y = self.spatial_state.v_y
+        omega = self.spatial_state.omega
+        t = self.spatial_state.omega
 
-    def get_temporal_derivatives(self, state, input, kappa):
+        return TemporalState(x, y, psi, v_x, v_y, omega, t)
+
+    def get_forces(self, input):
         """
-        Compute relevant temporal derivatives needed for state update.
-        :param state: state vector for which to compute derivatives
-        :param input: input vector
-        :param kappa: curvature of corresponding waypoint
-        :return: temporal derivatives of distance, angle and velocity
+        Compute forces required for temporal derivatives of v_x and v_y
+        :param delta:
+        :param D:
+        :return:
         """
 
-        e_y, e_psi, t = state
-        v, delta = input
+        D, delta = input
 
-        # Compute velocity along path
-        s_dot = 1 / (1 - (e_y * kappa)) * v * np.cos(e_psi)
+        F_rx = (self.Cm1 - self.Cm2 * self.spatial_state.v_x) * D - \
+               self.Cr0 - self.Cr2 * self.spatial_state.v_x ** 2
 
-        # Compute yaw angle rate of change
-        psi_dot = v / self.l * np.tan(delta)
+        alpha_f = - np.arctan2(
+            self.spatial_state.omega * self.lf + self.spatial_state.v_y,
+            self.spatial_state.v_x) + delta
+        F_fy = self.Df * np.sin(self.Cf * np.arctan(self.Bf * alpha_f))
 
-        return s_dot, psi_dot
+        alpha_r = np.arctan2(
+            self.spatial_state.omega * self.lr - self.spatial_state.v_y,
+            self.spatial_state.v_x)
+        F_ry = self.Dr * np.sin(self.Cr * np.arctan(self.Br * alpha_r))
+
+        return F_rx, F_fy, F_ry, alpha_f, alpha_r
+
+    def get_temporal_derivatives(self, state, input, kappa, forces):
+            """
+            Compute temporal derivatives needed for state update.
+            :param delta: steering command
+            :param D: duty-cycle of DC motor
+            :return: temporal derivatives of distance, angle and velocity
+            """
+
+            e_y, e_psi, v_x, v_y, omega, t = state
+            D, delta = input
+            F_rx, F_fy, F_ry = forces
+
+            # velocity along path
+            s_dot = 1 / (1 - (e_y * kappa)) * (v_x * np.cos(e_psi)
+                       + v_y * np.sin(e_psi))
+
+            # velocity in x and y direction
+            v_x_dot = (F_rx - F_fy * np.sin(
+                delta) + self.m * v_y * omega) / self.m
+            v_y_dot = (F_ry + F_fy * np.cos(
+                delta) - self.m * v_x * omega) / self.m
+
+            # omega dot
+            omega_dot = (F_fy * self.lf * np.cos(
+                delta) - F_ry * self.lr) / self.Iz
+
+            return s_dot, v_x_dot, v_y_dot, omega_dot
 
     def get_spatial_derivatives(self, state, input, kappa):
         """
         Compute spatial derivatives of all state variables for update.
-        :param state: state vector for which to compute derivatives
-        :param input: input vector
-        :param kappa: curvature of corresponding waypoint
-        :return: numpy array with spatial derivatives for all state variables
+        :param delta: steering angle
+        :param psi_dot: heading rate of change
+        :param s_dot: velocity along path
+        :param v_dot: acceleration
+        :return: spatial derivatives for all state variables
         """
 
-        e_y, e_psi, t = state
-        v, delta = input
+        e_y, e_psi, v_x, v_y, omega, t = state
+        D, delta = input
 
-        # Compute temporal derivatives
-        s_dot, psi_dot = self.get_temporal_derivatives(state, input, kappa)
+        # get required forces
+        F_rx, F_fy, F_ry, _, _ = self.get_forces(input)
+        forces = np.array([F_rx, F_fy, F_ry])
 
-        # Compute spatial derivatives
-        d_e_y_d_s = v * np.sin(e_psi) / s_dot
-        d_e_psi_d_s = psi_dot / s_dot - kappa
-        d_t_d_s = 1 / s_dot
+        # Compute state derivatives
+        s_dot, v_x_dot, v_y_dot, omega_dot = \
+            self.get_temporal_derivatives(state, input, kappa, forces)
 
-        return np.array([d_e_y_d_s, d_e_psi_d_s, d_t_d_s])
+        d_e_y = (v_x * np.sin(e_psi)
+                 + v_y * np.cos(e_psi)) \
+                / (s_dot + self.eps)
+        d_e_psi = (omega / (s_dot + self.eps) - kappa)
 
-    def linearize(self, v=None, kappa_r=None, delta_s=None):
+        d_v_x = v_x_dot / (s_dot + self.eps)
+        d_v_y = v_y_dot / (s_dot + self.eps)
+        d_omega = omega_dot / (s_dot + self.eps)
+        d_t = 1 / (s_dot + self.eps)
+
+        return np.array([d_e_y, d_e_psi, d_v_x, d_v_y, d_omega, d_t])
+
+    def linearize(self, state, input, kappa, delta_s):
         """
         Linearize the system equations around the current state and waypoint.
         :param kappa_r: kappa of waypoint around which to linearize
          """
 
-        # Get linearization state
-        if kappa_r is None and delta_s is None:
-            # Get curvature of linearization waypoint
-            kappa_r = self.reference_path.waypoints[self.wp_id].kappa
-            # Get delta_s
-            next_waypoint = self.reference_path.waypoints[self.wp_id + 1]
-            delta_s = next_waypoint - self.current_waypoint
+        D, delta = input
+        e_y, e_psi, v_x, v_y, omega, t = state
 
         ###################
         # System Matrices #
         ###################
 
-        # Construct Jacobian Matrix
-        a_1 = np.array([1,                    delta_s,      0])
-        a_2 = np.array([-kappa_r**2*delta_s,  1,            0])
-        a_3 = np.array([-kappa_r/v*delta_s,   0,            0])
+        # get temporal derivatives
+        F_rx, F_fy, F_ry, alpha_f, alpha_r = self.get_forces(input)
+        forces = np.array([F_rx, F_fy, F_ry])
+        s_dot, v_x_dot, v_y_dot, omega_dot = self. \
+            get_temporal_derivatives(state, input, kappa, forces)
 
-        b_1 = np.array([0, ])
-        b_2 = np.array([delta_s, ])
-        b_3 = np.array([0, ])
+        ##############################
+        # Forces Partial Derivatives #
+        ##############################
 
-        A = np.stack((a_1, a_2, a_3), axis=0)
-        B = np.stack((b_1, b_2, b_3), axis=0)
+        d_alpha_f_d_v_x = 1 / (1 + ((omega * self.lf + v_y) / v_x) ** 2) * (
+                    omega * self.lf + v_y) / (v_x ** 2)
+        d_alpha_f_d_v_y = - 1 / (1 + ((omega * self.lf + v_y) / v_x) ** 2) \
+                          / v_x
+        d_alpha_f_d_omega = - 1 / (1 + ((omega * self.lf + v_y) / v_x) ** 2) \
+                            * (self.lf / v_x)
+        d_alpha_f_d_delta = 1
 
-        return A, B
+        d_alpha_r_d_v_x = - 1 / (1 + ((omega * self.lr - v_y) / v_x) ** 2) * (
+                    omega * self.lr - v_y) / (v_x ** 2)
+        d_alpha_r_d_v_y = - 1 / (
+                    1 + ((omega * self.lr - v_y) / v_x) ** 2) / v_x
+        d_alpha_r_d_omega = 1 / (1 + ((omega * self.lr - v_y) / v_x) ** 2) * (
+                    self.lr * v_x)
+
+        d_F_fy_d_v_x = self.Df * np.cos(self.Cf * np.arctan(self.Bf * alpha_f)) \
+                       * self.Cf / (1 + (self.Bf * alpha_f) ** 2) * \
+                       self.Bf * d_alpha_f_d_v_x
+        d_F_fy_d_v_y = self.Df * np.cos(self.Cf * np.arctan(self.Bf * alpha_f)) \
+                       * self.Cf / (1 + (self.Bf * alpha_f) ** 2) * self.Bf \
+                       * d_alpha_f_d_v_y
+        d_F_fy_d_omega = self.Df * np.cos(self.Cf * np.arctan(self.Bf *
+                        alpha_f)) * self.Cf / (1 + (self.Bf * alpha_f) ** 2) \
+                         * self.Bf * d_alpha_f_d_omega
+        d_F_fy_d_delta = self.Df * np.cos(self.Cf * np.arctan(self.Bf *
+                        alpha_f)) * self.Cf / (1 + (self.Bf * alpha_f) ** 2) \
+                         * self.Bf * d_alpha_f_d_delta
+
+        d_F_ry_d_v_x = self.Dr * np.cos(self.Cr * np.arctan(self.Br * alpha_r)) \
+                       * self.Cr / (1 + (self.Br * alpha_r) ** 2) * self.Br * \
+                       d_alpha_r_d_v_x
+        d_F_ry_d_v_y = self.Dr * np.cos(self.Cr * np.arctan(self.Br * alpha_r)) \
+                       * self.Cr / (1 + (self.Br * alpha_r) ** 2) * self.Br \
+                       * d_alpha_r_d_v_y
+        d_F_ry_d_omega = self.Dr * np.cos(self.Cr * np.arctan(self.Br * alpha_r)) \
+                         * self.Cr / (1 + (self.Br * alpha_r) ** 2) * self.Br \
+                         * d_alpha_r_d_omega
+
+        d_F_rx_d_v_x = - self.Cm2 * D - 2 * self.Cr2 * v_x
+        d_F_rx_d_D = self.Cm1 - self.Cm2 * v_x
+
+        ##############################
+        # Helper Partial Derivatives #
+        ##############################
+
+        d_s_dot_d_e_y = kappa / (1 - e_y * kappa) ** 2 * (
+                    v_x * np.cos(e_psi) - v_y * np.sin(e_psi))
+        d_s_dot_d_e_psi = 1 / (1 - e_y * kappa) * (
+                    -v_x * np.sin(e_psi) - v_y * np.cos(e_psi))
+        d_s_dot_d_v_x = 1 / (1 - e_y * kappa) * np.cos(e_psi)
+        d_s_dot_d_v_y = -1 / (1 - e_y * kappa) * np.sin(e_psi)
+        d_s_dot_d_omega = 0
+        d_s_dot_d_t = 0
+        d_s_dot_d_delta = 0
+        d_s_dot_d_D = 0
+
+        c_1 = (v_x * np.sin(e_psi) + v_y * np.cos(e_psi))
+        d_c_1_d_e_y = 0
+        d_c_1_d_e_psi = v_x * np.cos(e_psi) - v_y * np.sin(e_psi)
+        d_c_1_d_v_x = np.sin(e_psi)
+        d_c_1_d_v_y = np.cos(e_psi)
+        d_c_1_d_omega = 0
+        d_c_1_d_t = 0
+        d_c_1_d_delta = 0
+        d_c_1_d_D = 0
+
+        d_v_x_dot_d_e_y = 0
+        d_v_x_dot_d_e_psi = 0
+        d_v_x_dot_d_v_x = (d_F_rx_d_v_x - d_F_fy_d_v_x * np.sin(
+            delta)) / self.m
+        d_v_x_dot_d_v_y = - (
+                    d_F_fy_d_v_y * np.sin(delta) + self.m * omega) / self.m
+        d_v_x_dot_d_omega = - (
+                    d_F_fy_d_omega * np.sin(delta) + self.m * v_y) / self.m
+        d_v_x_dot_d_t = 0
+        d_v_x_dot_d_delta = - (F_fy * np.cos(delta) + d_F_fy_d_delta * np.sin(
+            delta)) / self.m
+        d_v_x_dot_d_D = d_F_rx_d_D / self.m
+
+        d_v_y_dot_d_e_y = 0
+        d_v_y_dot_d_e_psi = 0
+        d_v_y_dot_d_v_x = (d_F_ry_d_v_x + d_F_fy_d_v_x * np.cos(
+            delta) - self.m * omega) / self.m
+        d_v_y_dot_d_v_y = (d_F_ry_d_v_y + d_F_fy_d_v_y * np.cos(
+            delta)) / self.m
+        d_v_y_dot_d_omega = (d_F_ry_d_omega + d_F_fy_d_omega * np.cos(
+            delta) - self.m * v_x) / self.m
+        d_v_y_dot_d_t = 0
+        d_v_y_dot_d_delta = d_F_fy_d_delta * np.cos(delta) / self.m
+        d_v_y_dot_d_D = 0
+
+        d_omega_dot_d_e_y = 0
+        d_omega_dot_d_e_psi = 0
+        d_omega_dot_d_v_x = (d_F_fy_d_v_x * self.lf * np.cos(
+            delta) - d_F_ry_d_v_x * self.lr) / self.Iz
+        d_omega_dot_d_v_y = (d_F_fy_d_v_y * self.lf * np.cos(
+            delta) - d_F_ry_d_v_y * self.lr) / self.Iz
+        d_omega_dot_d_omega = (d_F_fy_d_omega * self.lf * np.cos(
+            delta) - d_F_ry_d_omega * self.lr) / self.Iz
+        d_omega_dot_d_t = 0
+        d_omega_dot_d_delta = (- F_fy * self.lf * np.sin(
+            delta) + d_F_fy_d_delta * self.lf * np.cos(delta)) / self.Iz
+        d_omega_dot_d_D = 0
+
+        #######################
+        # Partial Derivatives #
+        #######################
+
+        # derivatives for E_Y
+        d_e_y_d_e_y = -c_1 * d_s_dot_d_e_y / (s_dot ** 2)
+        d_e_y_d_e_psi = (d_c_1_d_e_psi * s_dot - d_s_dot_d_e_psi * c_1) / (
+                    s_dot ** 2)
+        d_e_y_d_v_x = (d_c_1_d_v_x * s_dot - d_s_dot_d_v_x * c_1) / (
+                    s_dot ** 2)
+        d_e_y_d_v_y = (d_c_1_d_v_y * s_dot - d_s_dot_d_v_y * c_1) / (
+                    s_dot ** 2)
+        d_e_y_d_omega = (d_c_1_d_omega * s_dot - d_s_dot_d_omega * c_1) / (
+                    s_dot ** 2)
+        d_e_y_d_t = 0
+        d_e_y_d_D = 0
+        d_e_y_d_delta = (d_c_1_d_delta * s_dot - d_s_dot_d_delta * c_1) / (
+                    s_dot ** 2)
+
+        # derivatives for E_PSI
+        d_e_psi_d_e_y = - omega * d_s_dot_d_e_y / (s_dot ** 2)
+        d_e_psi_d_e_psi = - omega * d_s_dot_d_e_psi / (s_dot ** 2)
+        d_e_psi_d_v_x = (- omega * d_s_dot_d_v_x) / (s_dot ** 2)
+        d_e_psi_d_v_y = (- omega * d_s_dot_d_v_y) / (s_dot ** 2)
+        d_e_psi_d_omega = (s_dot - omega * d_s_dot_d_omega) / (s_dot ** 2)
+        d_e_psi_d_t = 0
+        d_e_psi_d_delta = (- omega * d_s_dot_d_delta) / (s_dot ** 2)
+        d_e_psi_d_D = (- omega * d_s_dot_d_D) / (s_dot ** 2)
+
+        # derivatives for V_X
+        d_v_x_d_e_y = - d_s_dot_d_e_y * v_x_dot / (s_dot ** 2)
+        d_v_x_d_e_psi = - d_s_dot_d_e_psi * v_x_dot / (s_dot ** 2)
+        d_v_x_d_v_x = (d_v_x_dot_d_v_x * s_dot - d_s_dot_d_v_x * v_x_dot) / (
+                    s_dot ** 2)
+        d_v_x_d_v_y = (d_v_x_dot_d_v_y * s_dot - d_s_dot_d_v_y * v_x_dot) / (
+                    s_dot ** 2)
+        d_v_x_d_omega = (d_v_x_dot_d_omega * s_dot - d_s_dot_d_omega * v_x_dot) \
+                        / (s_dot ** 2)
+        d_v_x_d_t = 0
+        d_v_x_d_delta = (d_v_x_dot_d_delta * s_dot - d_s_dot_d_delta * v_x_dot) / (
+                                    s_dot ** 2)
+        d_v_x_d_D = d_v_x_dot_d_D * s_dot / (s_dot ** 2)
+
+        # derivatives for V_Y
+        d_v_y_d_e_y = - d_s_dot_d_e_y * v_y_dot / (s_dot ** 2)
+        d_v_y_d_e_psi = - d_s_dot_d_e_psi * v_y_dot / (s_dot ** 2)
+        d_v_y_d_v_x = (d_v_y_dot_d_v_x * s_dot - d_s_dot_d_v_x * v_y_dot) / (
+                s_dot ** 2)
+        d_v_y_d_v_y = (d_v_y_dot_d_v_y * s_dot - d_s_dot_d_v_y * v_y_dot) / (
+                s_dot ** 2)
+        d_v_y_d_omega = (d_v_y_dot_d_omega * s_dot - d_s_dot_d_omega * v_y_dot) / (
+                                s_dot ** 2)
+        d_v_y_d_t = 0
+        d_v_y_d_delta = (d_v_y_dot_d_delta * s_dot - d_s_dot_d_delta * v_y_dot) / (
+                                s_dot ** 2)
+        d_v_y_d_D = d_v_y_dot_d_D * s_dot / (s_dot ** 2)
+
+        # derivatives for Omega
+        d_omega_d_e_y = (d_omega_dot_d_e_y * s_dot - omega_dot * d_s_dot_d_e_y) / (
+                                    s_dot ** 2)
+        d_omega_d_e_psi = (d_omega_dot_d_e_psi * s_dot - omega_dot * d_s_dot_d_e_psi) / (
+                                      s_dot ** 2)
+        d_omega_d_v_x = (d_omega_dot_d_v_x * s_dot - omega_dot * d_s_dot_d_v_x) / (
+                                    s_dot ** 2)
+        d_omega_d_v_y = (d_omega_dot_d_v_y * s_dot - omega_dot * d_s_dot_d_v_y) / (
+                                    s_dot ** 2)
+        d_omega_d_omega = (d_omega_dot_d_omega * s_dot - omega_dot * d_s_dot_d_omega) / (
+                                      s_dot ** 2)
+        d_omega_d_t = (d_omega_dot_d_t * s_dot - omega_dot * d_s_dot_d_t) / (
+                    s_dot ** 2)
+        d_omega_d_delta = (d_omega_dot_d_delta * s_dot - omega_dot * d_s_dot_d_delta) / (
+                                      s_dot ** 2)
+        d_omega_d_D = (d_omega_dot_d_D * s_dot - omega_dot * d_s_dot_d_D) / (
+                    s_dot ** 2)
+
+        # derivatives for T
+        d_t_d_e_y = - d_s_dot_d_e_y / (s_dot ** 2)
+        d_t_d_e_psi = - d_s_dot_d_e_psi / (s_dot ** 2)
+        d_t_d_v_x = - d_s_dot_d_v_x / (s_dot ** 2)
+        d_t_d_v_y = - d_s_dot_d_v_y / (s_dot ** 2)
+        d_t_d_omega = - d_s_dot_d_omega / (s_dot ** 2)
+        d_t_d_t = 0
+        d_t_d_delta = - d_s_dot_d_delta / (s_dot ** 2)
+        d_t_d_D = 0
+
+        # compute f
+        e_y_dot = c_1 / s_dot
+        e_psi_dot = omega / s_dot - kappa
+        t_dot = 1 / s_dot
+        f = np.array([e_y_dot, e_psi_dot, v_x_dot/s_dot, v_y_dot/s_dot, omega_dot/s_dot, t_dot]) * delta_s
+
+        a_1 = np.array([d_e_y_d_e_y, d_e_y_d_e_psi, d_e_y_d_v_x, d_e_y_d_v_y,
+                        d_e_y_d_omega, d_e_y_d_t])
+        a_2 = np.array(
+            [d_e_psi_d_e_y, d_e_psi_d_e_psi, d_e_psi_d_v_x, d_e_psi_d_v_y,
+             d_e_psi_d_omega, d_e_psi_d_t])
+        a_3 = np.array([d_v_x_d_e_y, d_v_x_d_e_psi, d_v_x_d_v_x, d_v_x_d_v_y,
+                        d_v_x_d_omega, d_v_x_d_t])
+        a_4 = np.array([d_v_y_d_e_y, d_v_y_d_e_psi, d_v_y_d_v_x, d_v_y_d_v_y,
+                        d_v_y_d_omega, d_v_y_d_t])
+        a_5 = np.array(
+            [d_omega_d_e_y, d_omega_d_e_psi, d_omega_d_v_x, d_omega_d_v_y,
+             d_omega_d_omega, d_omega_d_t])
+        a_6 = np.array(
+            [d_t_d_e_y, d_t_d_e_psi, d_t_d_v_x, d_t_d_v_y, d_t_d_omega,
+             d_t_d_t])
+        A = np.stack((a_1, a_2, a_3, a_4, a_5, a_6), axis=0) * delta_s
+        A[0, 0] += 1
+        A[1, 1] += 1
+        A[2, 2] += 1
+        A[3, 3] += 1
+        A[4, 4] += 1
+        A[5, 5] += 1
+        b_1 = np.array([d_e_y_d_D, d_e_y_d_delta])
+        b_2 = np.array([d_e_psi_d_D, d_e_psi_d_delta])
+        b_3 = np.array([d_v_x_d_D, d_v_x_d_delta])
+        b_4 = np.array([d_v_y_d_D, d_v_y_d_delta])
+        b_5 = np.array([d_omega_d_D, d_omega_d_delta])
+        b_6 = np.array([d_t_d_D, d_t_d_delta])
+        B = np.stack((b_1, b_2, b_3, b_4, b_5, b_6), axis=0) * delta_s
+
+        # set system matrices
+        return f, A, B
