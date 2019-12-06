@@ -90,14 +90,14 @@ class MPC:
             kappa_r = current_waypoint.kappa
 
             # Compute LTV matrices
-            A_lin, B_lin = self.model.linearize(v, kappa_r, delta_s)
+            f, A_lin, B_lin = self.model.linearize(v, kappa_r, delta_s)
             A[nx + n * nx:n * nx + 2 * nx, n * nx:n * nx + nx] = A_lin
             B[nx + n * nx:n * nx + 2 * nx, n * nu:n * nu + nu] = B_lin
 
             # Set kappa_r to reference for input signal
             ur[n] = kappa_r
             # Compute equality constraint offset (B*ur)
-            uq[n * nx:n * nx + nx] = B_lin[:, 0] * kappa_r
+            uq[n * nx:n * nx + nx] = B_lin[:, 0] * kappa_r - f
             lb, ub = self.model.reference_path.update_bounds(
                 self.model.wp_id + n, self.model.safety_margin[1])
             xmin_dyn[nx * n] = lb
@@ -211,7 +211,7 @@ class MPC:
             associated_waypoint = self.model.reference_path.waypoints[self.model.wp_id+n]
             predicted_temporal_state = self.model.s2t(associated_waypoint,
                                             spatial_state_prediction[n, :])
-
+            print(spatial_state_prediction[n, 2])
             #print('delta: ', u)
             #print('e_y: ', spatial_state_prediction[n, 0])
             #print('e_psi: ', spatial_state_prediction[n, 1])

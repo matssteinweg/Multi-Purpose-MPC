@@ -77,7 +77,7 @@ if __name__ == '__main__':
     N = 30
     Q = sparse.diags([1.0, 0.0, 0.0])
     R = sparse.diags([0.01])
-    QN = Q
+    QN = sparse.diags([0.0, 0.0, 1.0])
     InputConstraints = {'umin': np.array([-np.tan(0.66)/car.l]),
                         'umax': np.array([np.tan(0.66)/car.l])}
     StateConstraints = {'xmin': np.array([-np.inf, -np.inf, -np.inf]),
