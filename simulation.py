@@ -27,7 +27,7 @@ if __name__ == '__main__':
         # Create smoothed reference path
         reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
                                        smoothing_distance=5, max_width=0.23,
-                                       n_extension=50, circular=True)
+                                       circular=True)
     elif sim_mode == 'Q':
         map = Map(file_path='map_floor2.png')
         wp_x = [-9.169, 11.9, 7.3, -6.95]
@@ -37,7 +37,7 @@ if __name__ == '__main__':
         # Create smoothed reference path
         reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
                                        smoothing_distance=5, max_width=1.50,
-                                       n_extension=50, circular=False)
+                                       circular=False)
     else:
         print('Invalid Simulation Mode!')
         map, wp_x, wp_y, path_resolution, reference_path \
@@ -65,7 +65,6 @@ if __name__ == '__main__':
     e_y_0 = 0.0
     e_psi_0 = 0.0
     t_0 = 0.0
-    v = 1.0
 
     car = BicycleModel(length=0.12, width=0.06, reference_path=reference_path,
                        e_y=e_y_0, e_psi=e_psi_0, t=t_0)
@@ -76,13 +75,15 @@ if __name__ == '__main__':
 
     N = 30
     Q = sparse.diags([1.0, 0.0, 0.0])
-    R = sparse.diags([0.01])
-    QN = sparse.diags([0.0, 0.0, 1.0])
-    InputConstraints = {'umin': np.array([-np.tan(0.66)/car.l]),
-                        'umax': np.array([np.tan(0.66)/car.l])}
+    R = sparse.diags([1.0, 0.0])
+    QN = sparse.diags([0.0, 0.0, 0.0])
+    InputConstraints = {'umin': np.array([0.0, -np.tan(0.66)/car.l]),
+                        'umax': np.array([2.5, np.tan(0.66)/car.l])}
     StateConstraints = {'xmin': np.array([-np.inf, -np.inf, -np.inf]),
                         'xmax': np.array([np.inf, np.inf, np.inf])}
-    mpc = MPC(car, N, Q, R, QN, StateConstraints, InputConstraints)
+    velocity_reference = 1.5  # m/s
+    mpc = MPC(car, N, Q, R, QN, StateConstraints, InputConstraints,
+              velocity_reference)
 
     #########
     # LiDAR #
@@ -107,16 +108,10 @@ if __name__ == '__main__':
     while car.s < reference_path.length:
 
         # get control signals
-        start = time()
-        u = mpc.get_control(v)
-        end = time()
-        print('Control time: ', end-start)
+        u = mpc.get_control()
 
         # drive car
         car.drive(u)
-
-        # scan
-        scan = sensor.scan(car.temporal_state, map)
 
         # log
         x_log.append(car.temporal_state.x)
@@ -129,9 +124,6 @@ if __name__ == '__main__':
         # Plot path and drivable area
         reference_path.show()
 
-        # Plot scan
-        sensor.plot_scan(car.temporal_state)
-
         # Plot MPC prediction
         mpc.show_prediction()
 
@@ -140,11 +132,10 @@ if __name__ == '__main__':
 
         t += Ts
 
-        plt.title('MPC Simulation: Distance: {:.2f}m/{:.2f} m, Duration: '
+        plt.title('MPC Simulation: v(t): {:.2f}, delta(t): {:.2f}, Duration: '
                   '{:.2f} s'.
-                  format(car.s, car.reference_path.length, t))
-        if t == Ts:
-            plt.show()
-        plt.pause(0.0001)
+                  format(u[0], u[1], t))
+
+        plt.pause(0.01)
     print('Final Time: {:.2f}'.format(t))
     plt.close()

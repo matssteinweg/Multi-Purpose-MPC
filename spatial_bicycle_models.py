@@ -436,9 +436,9 @@ class BicycleModel(SpatialBicycleModel):
         a_2 = np.array([-kappa_r**2*delta_s,  1,            0])
         a_3 = np.array([-kappa_r/v*delta_s,   0,            1])
 
-        b_1 = np.array([0, ])
-        b_2 = np.array([delta_s, ])
-        b_3 = np.array([0, ])
+        b_1 = np.array([0,          0])
+        b_2 = np.array([0,   delta_s])
+        b_3 = np.array([-1/(v**2)*delta_s,          0])
 
         f = np.array([0.0, 0.0, 1/v*delta_s])
 

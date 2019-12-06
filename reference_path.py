@@ -84,7 +84,7 @@ class Obstacle:
 
 class ReferencePath:
     def __init__(self, map, wp_x, wp_y, resolution, smoothing_distance,
-                 max_width, n_extension, circular):
+                 max_width, circular):
         """
         Reference Path object. Create a reference trajectory from specified
         corner points with given resolution. Smoothing around corners can be
@@ -97,8 +97,6 @@ class ReferencePath:
         :param smoothing_distance: number of waypoints used for smoothing the
         path by averaging neighborhood of waypoints
         :param max_width: maximum width of path to both sides in m
-        :param n_extension: number of samples used for path extension to allow
-        for MPC
         :param circular: True if path circular
         """
 
@@ -114,14 +112,14 @@ class ReferencePath:
         # Look ahead distance for path averaging
         self.smoothing_distance = smoothing_distance
 
-        # Number of waypoints used to extend path at the end
-        self.n_extension = n_extension
-
         # Circular
         self.circular = circular
 
         # List of waypoint objects
         self.waypoints = self._construct_path(wp_x, wp_y)
+
+        # Number of waypoints
+        self.n_waypoints = len(self.waypoints)
 
         # Length of path
         self.length, self.segment_lengths = self._compute_length()
@@ -153,14 +151,6 @@ class ReferencePath:
         wp_y = [np.linspace(wp_y[i], wp_y[i + 1], n_wp[i], endpoint=False).
                     tolist() for i in range(len(wp_y) - 1)]
         wp_y = [wp for segment in wp_y for wp in segment] + [gp_y]
-
-        if self.n_extension is not None:
-            if self.circular:
-                wp_x += wp_x[:self.n_extension]
-                wp_y += wp_y[:self.n_extension]
-            else:
-                wp_x += wp_x[-self.n_extension:]
-                wp_y += wp_y[-self.n_extension:]
 
         # Smooth path
         wp_xs = []
@@ -232,7 +222,7 @@ class ReferencePath:
         :return: length of center-line path in m
         """
         segment_lengths = [0.0] + [self.waypoints[wp_id+1] - self.waypoints
-                    [wp_id] for wp_id in range(len(self.waypoints)-self.n_extension-1)]
+                    [wp_id] for wp_id in range(len(self.waypoints)-1)]
         s = sum(segment_lengths)
         return s, segment_lengths
 
@@ -327,7 +317,7 @@ class ReferencePath:
         """
 
         # Get reference waypoint
-        wp = self.waypoints[wp_id]
+        wp = self.get_waypoint(wp_id)
 
         # Get waypoint's border cells in map coordinates
         ub_p = self.map.w2m(wp.border_cells[0][0], wp.border_cells[0][1])
@@ -394,11 +384,6 @@ class ReferencePath:
         ub_ls = wp.x + ub * np.cos(angle_ub), wp.y + ub * np.sin(angle_ub)
         lb_ls = wp.x - lb * np.cos(angle_lb), wp.y - lb * np.sin(angle_lb)
 
-        # Update member variables of waypoint
-        #wp.ub = ub
-        #wp.lb = lb
-        #wp.border_cells = (ub_ls, lb_ls)
-
         return lb, ub
 
     def add_obstacles(self, obstacles):
@@ -444,14 +429,14 @@ class ReferencePath:
                    vmax=1.0)
 
         # Get x and y coordinates for all waypoints
-        wp_x = np.array([wp.x for wp in self.waypoints][:-self.n_extension])
-        wp_y = np.array([wp.y for wp in self.waypoints][:-self.n_extension])
+        wp_x = np.array([wp.x for wp in self.waypoints])
+        wp_y = np.array([wp.y for wp in self.waypoints])
 
         # Get x and y locations of border cells for upper and lower bound
-        wp_ub_x = np.array([wp.border_cells[0][0] for wp in self.waypoints][:-self.n_extension])
-        wp_ub_y = np.array([wp.border_cells[0][1] for wp in self.waypoints][:-self.n_extension])
-        wp_lb_x = np.array([wp.border_cells[1][0] for wp in self.waypoints][:-self.n_extension])
-        wp_lb_y = np.array([wp.border_cells[1][1] for wp in self.waypoints][:-self.n_extension])
+        wp_ub_x = np.array([wp.border_cells[0][0] for wp in self.waypoints])
+        wp_ub_y = np.array([wp.border_cells[0][1] for wp in self.waypoints])
+        wp_lb_x = np.array([wp.border_cells[1][0] for wp in self.waypoints])
+        wp_lb_y = np.array([wp.border_cells[1][1] for wp in self.waypoints])
 
         # Plot waypoints
         plt.scatter(wp_x, wp_y, color=WAYPOINTS, s=3)
@@ -467,16 +452,16 @@ class ReferencePath:
 
         # Plot border of path
         bl_x = np.array([wp.border_cells[0][0] for wp in
-                         self.waypoints][:-self.n_extension] +
+                         self.waypoints] +
                         [self.waypoints[0].border_cells[0][0]])
         bl_y = np.array([wp.border_cells[0][1] for wp in
-                         self.waypoints][:-self.n_extension] +
+                         self.waypoints] +
                         [self.waypoints[0].border_cells[0][1]])
         br_x = np.array([wp.border_cells[1][0] for wp in
-                         self.waypoints][:-self.n_extension] +
+                         self.waypoints] +
                         [self.waypoints[0].border_cells[1][0]])
         br_y = np.array([wp.border_cells[1][1] for wp in
-                         self.waypoints][:-self.n_extension] +
+                         self.waypoints] +
                         [self.waypoints[0].border_cells[1][1]])
         # Smooth border
         # bl_x = savgol_filter(bl_x, 15, 9)
@@ -499,11 +484,22 @@ class ReferencePath:
         for obstacle in self.obstacles:
             obstacle.show()
 
+    def get_waypoint(self, wp_id):
+        if wp_id >= self.n_waypoints and self.circular:
+            wp_id = np.mod(wp_id, self.n_waypoints)
+        elif wp_id >= self.n_waypoints and not self.circular:
+            print('Reached end of path!')
+            exit(1)
+
+        return self.waypoints[wp_id]
+
+
+
 
 if __name__ == '__main__':
 
     # Select Path | 'Race' or 'Q'
-    path = 'Race'
+    path = 'Q'
 
     # Create Map
     if path == 'Race':
