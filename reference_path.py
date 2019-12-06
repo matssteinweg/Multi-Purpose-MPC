@@ -4,7 +4,8 @@ from map import Map
 from skimage.draw import line
 import matplotlib.pyplot as plt
 import matplotlib.patches as plt_patches
-from scipy.signal import savgol_filter
+from scipy import sparse
+import osqp
 
 # Colors
 DRIVABLE_AREA = '#BDC3C7'
@@ -31,7 +32,10 @@ class Waypoint:
         self.psi = psi
         self.kappa = kappa
 
-        # information about drivable area at waypoint
+        # Reference velocity at this waypoint according to speed profile
+        self.v_ref = None
+
+        # Information about drivable area at waypoint
         # upper and lower bound of drivable area orthogonal to
         # waypoint orientation
         self.lb = None
@@ -112,7 +116,7 @@ class ReferencePath:
         # Look ahead distance for path averaging
         self.smoothing_distance = smoothing_distance
 
-        # Circular
+        # Circular flag
         self.circular = circular
 
         # List of waypoint objects
@@ -308,6 +312,88 @@ class ReferencePath:
 
         return min_width, min_cell
 
+    def compute_speed_profile(self, Constraints):
+        """
+        Compute a speed profile for the path. Assign a reference velocity
+        to each waypoint based on its curvature.
+        """
+
+        # Set optimization horizon
+        N = self.n_waypoints - 1
+
+        # Constraints
+        a_min = np.ones(N-1) * Constraints['a_min']
+        a_max = np.ones(N-1) * Constraints['a_max']
+        v_min = np.ones(N) * Constraints['v_min']
+        v_max = np.ones(N) * Constraints['v_max']
+
+        # Maximum lateral acceleration
+        ay_max = Constraints['ay_max']
+
+        # Inequality Matrix
+        D1 = np.zeros((N-1, N))
+
+        # Iterate over horizon
+        for i in range(N):
+
+            # Get information about current waypoint
+            current_waypoint = self.get_waypoint(i)
+            next_waypoint = self.get_waypoint(i+1)
+            # distance between waypoints
+            li = next_waypoint - current_waypoint
+            # curvature of waypoint
+            ki = current_waypoint.kappa
+
+            # Fill operator matrix
+            # dynamics of acceleration
+            if i < N-1:
+                D1[i, i:i+2] = np.array([-1/(2*li), 1/(2*li)])
+
+            # Compute dynamic constraint on velocity
+            v_max_dyn = np.sqrt(ay_max / (np.abs(ki) + self.eps))
+            if v_max_dyn < v_max[i]:
+                v_max[i] = v_max_dyn
+
+        # Construct inequality matrix
+        D1 = sparse.csc_matrix(D1)
+        D2 = sparse.eye(N)
+        D = sparse.vstack([D1, D2], format='csc')
+
+        # Get upper and lower bound vectors for inequality constraints
+        l = np.hstack([a_min, v_min])
+        u = np.hstack([a_max, v_max])
+
+        # Set cost matrices
+        P = sparse.eye(N, format='csc')
+        q = -1 * v_max
+
+        # Solve optimization problem
+        problem = osqp.OSQP()
+        problem.setup(P=P, q=q, A=D, l=l, u=u, verbose=False)
+        speed_profile = problem.solve().x
+
+        # Assign reference velocity to every waypoint
+        for i, wp in enumerate(self.waypoints[:-1]):
+            wp.v_ref = speed_profile[i]
+        self.waypoints[-1].v_ref = self.waypoints[-2].v_ref
+
+    def get_waypoint(self, wp_id):
+        """
+        Get waypoint corresponding to wp_id. Circular indexing supported.
+        :param wp_id: unique waypoint ID
+        :return: waypoint object
+        """
+
+        # Allow circular indexing if circular path
+        if wp_id >= self.n_waypoints and self.circular:
+            wp_id = np.mod(wp_id, self.n_waypoints)
+        # Terminate execution if end of path reached
+        elif wp_id >= self.n_waypoints and not self.circular:
+            print('Reached end of path!')
+            exit(1)
+
+        return self.waypoints[wp_id]
+
     def update_bounds(self, wp_id, safety_margin):
         """
         Compute upper and lower bounds of the drivable area orthogonal to
@@ -341,10 +427,10 @@ class ReferencePath:
                 lb_o = (x, y)
             # If cell is occupied, end segment. Update best segment if current
             # segment is larger than previous best segment. Then, reset upper
-            # and lower bound to current cell.
+            # and lower bound to current cell
             if self.map.data[y, x] == 0 or (x, y) == lb_p:
                 if np.sqrt((ub_o[0]-lb_o[0])**2+(ub_o[1]-lb_o[1])**2) > \
-                    np.sqrt((ub_ls[0]-lb_ls[0])**2+(ub_ls[1]-lb_ls[1])**2):
+                np.sqrt((ub_ls[0]-lb_ls[0])**2+(ub_ls[1]-lb_ls[1])**2):
                     ub_ls = ub_o
                     lb_ls = lb_o
                 # Start new segment
@@ -380,11 +466,13 @@ class ReferencePath:
         # Compute absolute angle of bound cell
         angle_ub = np.mod(math.pi/2 + wp.psi + math.pi, 2 * math.pi) - math.pi
         angle_lb = np.mod(-math.pi/2 + wp.psi + math.pi, 2 * math.pi) - math.pi
+
         # Compute cell on bound for computed distance ub and lb
         ub_ls = wp.x + ub * np.cos(angle_ub), wp.y + ub * np.sin(angle_ub)
         lb_ls = wp.x - lb * np.cos(angle_lb), wp.y - lb * np.sin(angle_lb)
+        border_cells = (ub_ls, lb_ls)
 
-        return lb, ub
+        return lb, ub, border_cells
 
     def add_obstacles(self, obstacles):
         """
@@ -397,8 +485,12 @@ class ReferencePath:
 
         # Iterate over list of obstacles
         for obstacle in obstacles:
+            # Compute radius of circular object in pixels
             radius_px = int(np.ceil(obstacle.radius / self.map.resolution))
+            # Get center coordinates of obstacle in map coordinates
             cx_px, cy_px = self.map.w2m(obstacle.cx, obstacle.cy)
+
+            # Add circular object to map
             y, x = np.ogrid[-radius_px: radius_px, -radius_px: radius_px]
             index = x ** 2 + y ** 2 <= radius_px ** 2
             self.map.data[cy_px-radius_px:cy_px+radius_px, cx_px-radius_px:
@@ -439,7 +531,7 @@ class ReferencePath:
         wp_lb_y = np.array([wp.border_cells[1][1] for wp in self.waypoints])
 
         # Plot waypoints
-        plt.scatter(wp_x, wp_y, color=WAYPOINTS, s=3)
+        plt.scatter(wp_x, wp_y, color=WAYPOINTS, s=10)
 
         # Plot arrows indicating drivable area
         if display_drivable_area:
@@ -463,11 +555,6 @@ class ReferencePath:
         br_y = np.array([wp.border_cells[1][1] for wp in
                          self.waypoints] +
                         [self.waypoints[0].border_cells[1][1]])
-        # Smooth border
-        # bl_x = savgol_filter(bl_x, 15, 9)
-        # bl_y = savgol_filter(bl_y, 15, 9)
-        # br_x = savgol_filter(br_x, 15, 9)
-        # br_y = savgol_filter(br_y, 15, 9)
 
         # If circular path, connect start and end point
         if self.circular:
@@ -484,22 +571,11 @@ class ReferencePath:
         for obstacle in self.obstacles:
             obstacle.show()
 
-    def get_waypoint(self, wp_id):
-        if wp_id >= self.n_waypoints and self.circular:
-            wp_id = np.mod(wp_id, self.n_waypoints)
-        elif wp_id >= self.n_waypoints and not self.circular:
-            print('Reached end of path!')
-            exit(1)
-
-        return self.waypoints[wp_id]
-
-
-
 
 if __name__ == '__main__':
 
     # Select Path | 'Race' or 'Q'
-    path = 'Q'
+    path = 'Race'
 
     # Create Map
     if path == 'Race':
@@ -512,7 +588,7 @@ if __name__ == '__main__':
         # Specify path resolution
         path_resolution = 0.05  # m / wp
         reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
-                     smoothing_distance=5, max_width=0.22, n_extension=30,
+                     smoothing_distance=5, max_width=0.15,
                                        circular=True)
         # Add obstacles
         obs1 = Obstacle(cx=0.0, cy=0.0, radius=0.05)
@@ -534,7 +610,7 @@ if __name__ == '__main__':
         path_resolution = 0.20  # m / wp
         reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
                                        smoothing_distance=5, max_width=1.5,
-                                       n_extension=30, circular=False)
+                                    circular=False)
         obs1 = Obstacle(cx=-6.3, cy=-11.1, radius=0.20)
         obs2 = Obstacle(cx=-2.2, cy=-6.8, radius=0.25)
         obs3 = Obstacle(cx=1.7, cy=-1.0, radius=0.15)

@@ -13,8 +13,7 @@ PREDICTION = '#BA4A00'
 
 
 class MPC:
-    def __init__(self, model, N, Q, R, QN, StateConstraints, InputConstraints,
-                 velocity_reference):
+    def __init__(self, model, N, Q, R, QN, StateConstraints, InputConstraints):
         """
         Constructor for the Model Predictive Controller.
         :param model: bicycle model object to be controlled
@@ -24,7 +23,6 @@ class MPC:
         :param QN: final state cost matrix
         :param StateConstraints: dictionary of state constraints
         :param InputConstraints: dictionary of input constraints
-        :param velocity_reference: reference value for velocity
         """
 
         # Parameters
@@ -44,9 +42,6 @@ class MPC:
         self.state_constraints = StateConstraints
         self.input_constraints = InputConstraints
 
-        # Velocity reference
-        self.v_ref = velocity_reference
-
         # Current control and prediction
         self.current_prediction = None
 
@@ -54,7 +49,7 @@ class MPC:
         self.infeasibility_counter = 0
 
         # Current control signals
-        self.current_control = np.ones((self.nu*self.N)) * velocity_reference
+        self.current_control = np.ones((self.nu*self.N))
 
         # Initialize Optimization Problem
         self.optimizer = osqp.OSQP()
@@ -90,19 +85,20 @@ class MPC:
             next_waypoint = self.model.reference_path.get_waypoint(self.model.wp_id + n + 1)
             delta_s = next_waypoint - current_waypoint
             kappa_ref = current_waypoint.kappa
+            v_ref = current_waypoint.v_ref
 
             # Compute LTV matrices
-            f, A_lin, B_lin = self.model.linearize(self.v_ref, kappa_ref, delta_s)
+            f, A_lin, B_lin = self.model.linearize(v_ref, kappa_ref, delta_s)
             A[(n+1) * self.nx: (n+2)*self.nx, n * self.nx:(n+1)*self.nx] = A_lin
             B[(n+1) * self.nx: (n+2)*self.nx, n * self.nu:(n+1)*self.nu] = B_lin
 
             # Set reference for input signal
-            ur[n*self.nu:(n+1)*self.nu] = np.array([self.v_ref, kappa_ref])
+            ur[n*self.nu:(n+1)*self.nu] = np.array([v_ref, kappa_ref])
             # Compute equality constraint offset (B*ur)
             uq[n * self.nx:(n+1)*self.nx] = B_lin.dot(np.array
-                                            ([self.v_ref, kappa_ref])) - f
+                                            ([v_ref, kappa_ref])) - f
             # Compute dynamic constraints on e_y
-            lb, ub = self.model.reference_path.update_bounds(
+            lb, ub, cells = self.model.reference_path.update_bounds(
                 self.model.wp_id + n, self.model.safety_margin[1])
             xmin_dyn[self.nx * n] = lb
             xmax_dyn[self.nx * n] = ub
