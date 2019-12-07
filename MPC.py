@@ -42,6 +42,9 @@ class MPC:
         self.state_constraints = StateConstraints
         self.input_constraints = InputConstraints
 
+        # Maximum lateral acceleration
+        self.ay_max = 5.0
+
         # Current control and prediction
         self.current_prediction = None
 
@@ -76,6 +79,11 @@ class MPC:
         # Dynamic state constraints
         xmin_dyn = np.kron(np.ones(self.N + 1), xmin)
         xmax_dyn = np.kron(np.ones(self.N + 1), xmax)
+        # Dynamic input constraints
+        umax_dyn = np.kron(np.ones(self.N), umax)
+        # Get curvature predictions from previous control signals
+        kappa_pred = np.tan(np.array(self.current_control[3::] +
+                                     self.current_control[-1:])) / self.model.l
 
         # Iterate over horizon
         for n in range(self.N):
@@ -102,6 +110,10 @@ class MPC:
                 self.model.wp_id + n, self.model.safety_margin[1])
             xmin_dyn[self.nx * n] = lb
             xmax_dyn[self.nx * n] = ub
+            # Constrain maximum speed based on predicted car curvature
+            vmax_dyn = np.sqrt(self.ay_max / (np.abs(kappa_pred[n]) + 1e-12))
+            if vmax_dyn < umax_dyn[self.nu*n]:
+                umax_dyn[self.nu*n] = vmax_dyn
 
         # Get equality matrix
         Ax = sparse.kron(sparse.eye(self.N + 1),
@@ -116,8 +128,7 @@ class MPC:
         # Get upper and lower bound vectors for equality constraints
         lineq = np.hstack([xmin_dyn,
                            np.kron(np.ones(self.N), umin)])
-        uineq = np.hstack([xmax_dyn,
-                           np.kron(np.ones(self.N), umax)])
+        uineq = np.hstack([xmax_dyn, umax_dyn])
         # Get upper and lower bound vectors for inequality constraints
         x0 = np.array(self.model.spatial_state[:])
         leq = np.hstack([-x0, uq])
