@@ -336,6 +336,8 @@ class ReferencePath:
         # Iterate over horizon
         for i in range(N):
 
+            look_ahead = 30
+
             # Get information about current waypoint
             current_waypoint = self.get_waypoint(i)
             next_waypoint = self.get_waypoint(i+1)
@@ -343,6 +345,9 @@ class ReferencePath:
             li = next_waypoint - current_waypoint
             # curvature of waypoint
             ki = current_waypoint.kappa
+            if np.abs(ki) <= 0.1:
+                kis = [wp.kappa for wp in self.waypoints[i:i+look_ahead]]
+                ki = np.mean(kis)
 
             # Fill operator matrix
             # dynamics of acceleration
@@ -511,8 +516,8 @@ class ReferencePath:
         plt.yticks([])
 
         # Plot map in gray-scale and set extent to match world coordinates
-        canvas = np.ones(self.map.data.shape)
-        # canvas = np.flipud(self.map.data)
+        #canvas = np.ones(self.map.data.shape)
+        canvas = np.flipud(self.map.data)
         plt.imshow(canvas, cmap='gray',
                    extent=[self.map.origin[0], self.map.origin[0] +
                            self.map.width * self.map.resolution,
@@ -571,11 +576,184 @@ class ReferencePath:
         for obstacle in self.obstacles:
             obstacle.show()
 
+    def _compute_free_segments(self, wp, min_width):
+        """
+        Compute free path segments.
+        :param wp: waypoint object
+        :param min_width: minimum width of valid segment
+        :return: segment candidates as list of tuples (ub_cell, lb_cell)
+        """
+
+        # Candidate segments
+        free_segments = []
+
+        # Get waypoint's border cells in map coordinates
+        ub_p = self.map.w2m(wp.border_cells[0][0],
+                            wp.border_cells[0][1])
+        lb_p = self.map.w2m(wp.border_cells[1][0],
+                            wp.border_cells[1][1])
+
+        # Compute path from left border cell to right border cell
+        x_list, y_list = line(ub_p[0], ub_p[1], lb_p[0], lb_p[1])
+
+        # Initialize upper and lower bound of drivable area to
+        # upper bound of path
+        ub_o, lb_o = ub_p, ub_p
+
+        # Assume occupied path
+        free_cells = False
+
+        # Iterate over path from left border to right border
+        for x, y in zip(x_list[1:], y_list[1:]):
+            # If cell is free, update lower bound
+            if self.map.data[y, x] == 1:
+                # Free cell detected
+                free_cells = True
+                lb_o = (x, y)
+            # If cell is occupied or end of path, end segment. Add segment
+            # to list of candidates. Then, reset upper and lower bound to
+            # current cell.
+            if (self.map.data[y, x] == 0 or (x, y) == lb_p) and free_cells:
+                # Set lower bound to border cell of segment
+                lb_o = (x, y)
+                # Transform upper and lower bound cells to world coordinates
+                ub_o = self.map.m2w(ub_o[0], ub_o[1])
+                lb_o = self.map.m2w(lb_o[0], lb_o[1])
+                # If segment larger than threshold, add to candidates
+                if np.sqrt((ub_o[0]-lb_o[0])**2 + (ub_o[1]-lb_o[1])**2) > \
+                    min_width:
+                    free_segments.append((ub_o, lb_o))
+                # Start new segment
+                ub_o = (x, y)
+                free_cells = False
+            elif self.map.data[y, x] == 0 and not free_cells:
+                ub_o = (x, y)
+                lb_o = (x, y)
+
+        return free_segments
+
+    def update_path_constraints(self, wp_id, N, min_width, safety_margin):
+        """
+        Compute upper and lower bounds of the drivable area orthogonal to
+        the given waypoint.
+        """
+
+        # container for constraints and border cells
+        ub_hor = []
+        lb_hor = []
+        border_cells_hor = []
+
+        # Iterate over horizon
+        for n in range(N):
+
+            # get corresponding waypoint
+            wp = self.waypoints[wp_id+n]
+
+            # Get list of free segments
+            free_segments = self._compute_free_segments(wp, min_width)
+
+            # First waypoint in horizon uses largest segment
+            if n == 0:
+                segment_lengths = [np.sqrt((seg[0][0]-seg[1][0])**2 +
+                            (seg[0][1]-seg[1][1])**2) for seg in free_segments]
+                ls_id = segment_lengths.index(max(segment_lengths))
+                ub_ls, lb_ls = free_segments[ls_id]
+
+            else:
+
+                # Get border cells of selected segment at previous waypoint
+                ub_pw, lb_pw = border_cells_hor[n-1]
+                ub_pw, lb_pw = list(ub_pw), list(lb_pw)
+
+                # Project border cells onto new waypoint in path direction
+                wp_prev = self.waypoints[wp_id+n-1]
+                delta_s = wp_prev - wp
+                ub_pw[0] += delta_s * np.cos(wp_prev.psi)
+                ub_pw[1] += delta_s * np.cos(wp_prev.psi)
+                lb_pw[0] += delta_s * np.sin(wp_prev.psi)
+                lb_pw[1] += delta_s * np.sin(wp_prev.psi)
+
+                # Iterate over free segments for current waypoint
+                if len(free_segments) >= 2:
+
+                    # container for overlap of segments with projection
+                    segment_offsets = []
+
+                    for free_segment in free_segments:
+
+                        # Get border cells of segment
+                        ub_fs, lb_fs = free_segment
+
+                        # distance between upper bounds and lower bounds
+                        d_ub = np.sqrt((ub_fs[0]-ub_pw[0])**2 + (ub_fs[1]-ub_pw[1])**2)
+                        d_lb = np.sqrt((lb_fs[0]-lb_pw[0])**2 + (lb_fs[1]-lb_pw[1])**2)
+                        mean_dist = (d_ub + d_lb) / 2
+
+                        # Append offset to projected previous segment
+                        segment_offsets.append(mean_dist)
+
+                    # Select segment with minimum offset to projected previous
+                    # segment
+                    ls_id = segment_offsets.index(min(segment_offsets))
+                    ub_ls, lb_ls = free_segments[ls_id]
+
+                # Select free segment in case of only one candidate
+                elif len(free_segments) == 1:
+                    ub_ls, lb_ls = free_segments[0]
+
+                # Set waypoint coordinates as bound cells if no feasible
+                # segment available
+                else:
+                    ub_ls, lb_ls = (wp.x, wp.y), (wp.x, wp.y)
+
+            # Check sign of upper and lower bound
+            angle_ub = np.mod(np.arctan2(ub_ls[1] - wp.y, ub_ls[0] - wp.x)
+                                  - wp.psi + math.pi, 2 * math.pi) - math.pi
+            angle_lb = np.mod(np.arctan2(lb_ls[1] - wp.y, lb_ls[0] - wp.x)
+                                  - wp.psi + math.pi, 2 * math.pi) - math.pi
+            sign_ub = np.sign(angle_ub)
+            sign_lb = np.sign(angle_lb)
+
+            # Compute upper and lower bound of largest drivable area
+            ub = sign_ub * np.sqrt(
+                    (ub_ls[0] - wp.x) ** 2 + (ub_ls[1] - wp.y) ** 2)
+            lb = sign_lb * np.sqrt(
+                    (lb_ls[0] - wp.x) ** 2 + (lb_ls[1] - wp.y) ** 2)
+
+            # Subtract safety margin
+            ub -= safety_margin
+            lb += safety_margin
+
+            # Check feasibility of the path
+            if ub < lb:
+                # Upper and lower bound of 0 indicate an infeasible path
+                # given the specified safety margin
+                ub, lb = 0.0, 0.0
+
+            # Compute absolute angle of bound cell
+            angle_ub = np.mod(math.pi / 2 + wp.psi + math.pi,
+                                  2 * math.pi) - math.pi
+            angle_lb = np.mod(-math.pi / 2 + wp.psi + math.pi,
+                                  2 * math.pi) - math.pi
+            # Compute cell on bound for computed distance ub and lb
+            ub_ls = wp.x + ub * np.cos(angle_ub), wp.y + ub * np.sin(
+                    angle_ub)
+            lb_ls = wp.x - lb * np.cos(angle_lb), wp.y - lb * np.sin(
+                    angle_lb)
+            bound_cells = (ub_ls, lb_ls)
+
+            # Append results
+            ub_hor.append(ub)
+            lb_hor.append(lb)
+            border_cells_hor.append(list(bound_cells))
+
+        return np.array(ub_hor), np.array(lb_hor), border_cells_hor
+
 
 if __name__ == '__main__':
 
     # Select Path | 'Race' or 'Q'
-    path = 'Race'
+    path = 'Q'
 
     # Create Map
     if path == 'Race':
@@ -615,16 +793,27 @@ if __name__ == '__main__':
         obs2 = Obstacle(cx=-2.2, cy=-6.8, radius=0.25)
         obs3 = Obstacle(cx=1.7, cy=-1.0, radius=0.15)
         obs4 = Obstacle(cx=2.0, cy=-1.2, radius=0.25)
-        reference_path.add_obstacles([obs1, obs2, obs3, obs4])
+        obs5 = Obstacle(cx=2.2, cy=-0.86, radius=0.1)
+        obs6 = Obstacle(cx=2.33, cy=-0.7, radius=0.1)
+        obs7 = Obstacle(cx=2.67, cy=-0.73, radius=0.1)
+        obs8 = Obstacle(cx=6.42, cy=3.97, radius=0.3)
+        obs9 = Obstacle(cx=7.42, cy=4.97, radius=0.3)
+        obs10 = Obstacle(cx=7.14, cy=5.7, radius=0.1)
+        reference_path.add_obstacles([obs1, obs2, obs3, obs4, obs5, obs6, obs7, obs8, obs9, obs10])
 
     else:
         reference_path = None
         print('Invalid path!')
         exit(1)
 
-    [reference_path.update_bounds(wp_id=wp_id, safety_margin=0.02)
-     for wp_id in range(len(reference_path.waypoints))]
+    ub, lb, border_cells = reference_path.update_path_constraints(0, reference_path.n_waypoints, 0.60, 0.1)
+    # Get x and y locations of border cells for upper and lower bound
+    for wp_id in range(reference_path.n_waypoints):
+        if ub[wp_id] > 0.0 and lb[wp_id] > 0.0:
+            print(wp_id)
+        reference_path.waypoints[wp_id].border_cells = border_cells[wp_id]
     reference_path.show()
+
     plt.show()
 
 

@@ -105,15 +105,17 @@ class MPC:
             # Compute equality constraint offset (B*ur)
             uq[n * self.nx:(n+1)*self.nx] = B_lin.dot(np.array
                                             ([v_ref, kappa_ref])) - f
-            # Compute dynamic constraints on e_y
-            lb, ub, cells = self.model.reference_path.update_bounds(
-                self.model.wp_id + n, self.model.safety_margin[1])
-            xmin_dyn[self.nx * n] = lb
-            xmax_dyn[self.nx * n] = ub
+
             # Constrain maximum speed based on predicted car curvature
             vmax_dyn = np.sqrt(self.ay_max / (np.abs(kappa_pred[n]) + 1e-12))
             if vmax_dyn < umax_dyn[self.nu*n]:
                 umax_dyn[self.nu*n] = vmax_dyn
+
+        # Compute dynamic constraints on e_y
+        ub, lb, cells = self.model.reference_path.update_path_constraints(
+                    self.model.wp_id, self.N+1, 2*self.model.safety_margin[1], 0.05)
+        xmin_dyn[::self.nx] = lb
+        xmax_dyn[::self.nx] = ub
 
         # Get equality matrix
         Ax = sparse.kron(sparse.eye(self.N + 1),

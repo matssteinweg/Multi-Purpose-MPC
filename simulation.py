@@ -10,7 +10,7 @@ from scipy import sparse
 if __name__ == '__main__':
 
     # Select Simulation Mode | 'Race' or 'Q'
-    sim_mode = 'Race'
+    sim_mode = 'Q'
 
     # Create Map
     if sim_mode == 'Race':
@@ -83,8 +83,8 @@ if __name__ == '__main__':
     mpc = MPC(car, N, Q, R, QN, StateConstraints, InputConstraints)
 
     # Compute speed profile
-    SpeedProfileConstraints = {'a_min': -2.0, 'a_max': 2.0,
-                               'v_min': 0, 'v_max': V_MAX, 'ay_max': 5.0}
+    SpeedProfileConstraints = {'a_min': -1.0, 'a_max': 1.0,
+                               'v_min': 0, 'v_max': V_MAX, 'ay_max': 1.0}
     car.reference_path.compute_speed_profile(SpeedProfileConstraints)
 
     ##############
@@ -92,7 +92,7 @@ if __name__ == '__main__':
     ##############
 
     # Sampling time
-    Ts = 0.05
+    Ts = 0.20
     t = 0
     car.set_sampling_time(Ts)
 
@@ -137,5 +137,6 @@ if __name__ == '__main__':
         plt.title('MPC Simulation: v(t): {:.2f}, delta(t): {:.2f}, Duration: '
                   '{:.2f} s'.format(u[0], u[1], t))
 
-        plt.pause(0.0001)
+        plt.pause(0.00001)
+    print(min(v_log))
     plt.show()
