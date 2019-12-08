@@ -399,86 +399,6 @@ class ReferencePath:
 
         return self.waypoints[wp_id]
 
-    def update_bounds(self, wp_id, safety_margin):
-        """
-        Compute upper and lower bounds of the drivable area orthogonal to
-        the given waypoint.
-        :param safety_margin: safety margin of the car orthogonal to path in m
-        :param wp_id: ID of reference waypoint
-        """
-
-        # Get reference waypoint
-        wp = self.get_waypoint(wp_id)
-
-        # Get waypoint's border cells in map coordinates
-        ub_p = self.map.w2m(wp.border_cells[0][0], wp.border_cells[0][1])
-        lb_p = self.map.w2m(wp.border_cells[1][0], wp.border_cells[1][1])
-
-        # Compute path from left border cell to right border cell
-        x_list, y_list = line(ub_p[0], ub_p[1], lb_p[0], lb_p[1])
-
-        # Initialize upper and lower bound of drivable area to
-        # upper bound of path
-        ub_o, lb_o = ub_p, ub_p
-
-        # Initialize upper and lower bound of best segment to upper bound of
-        # path
-        ub_ls, lb_ls = ub_p, ub_p
-
-        # Iterate over path from left border to right border
-        for x, y in zip(x_list[1:], y_list[1:]):
-            # If cell is free, update lower bound
-            if self.map.data[y, x] == 1:
-                lb_o = (x, y)
-            # If cell is occupied, end segment. Update best segment if current
-            # segment is larger than previous best segment. Then, reset upper
-            # and lower bound to current cell
-            if self.map.data[y, x] == 0 or (x, y) == lb_p:
-                if np.sqrt((ub_o[0]-lb_o[0])**2+(ub_o[1]-lb_o[1])**2) > \
-                np.sqrt((ub_ls[0]-lb_ls[0])**2+(ub_ls[1]-lb_ls[1])**2):
-                    ub_ls = ub_o
-                    lb_ls = lb_o
-                # Start new segment
-                ub_o = (x, y)
-                lb_o = (x, y)
-
-        # Transform upper and lower bound cells to world coordinates
-        ub_ls = self.map.m2w(ub_ls[0], ub_ls[1])
-        lb_ls = self.map.m2w(lb_ls[0], lb_ls[1])
-
-        # Check sign of upper and lower bound
-        angle_ub = np.mod(np.arctan2(ub_ls[1] - wp.y, ub_ls[0] - wp.x)
-                          - wp.psi + math.pi, 2*math.pi) - math.pi
-        angle_lb = np.mod(np.arctan2(lb_ls[1] - wp.y, lb_ls[0] - wp.x)
-                          - wp.psi + math.pi, 2*math.pi) - math.pi
-        sign_ub = np.sign(angle_ub)
-        sign_lb = np.sign(angle_lb)
-
-        # Compute upper and lower bound of largest drivable area
-        ub = sign_ub * np.sqrt((ub_ls[0]-wp.x)**2+(ub_ls[1]-wp.y)**2)
-        lb = sign_lb * np.sqrt((lb_ls[0]-wp.x)**2+(lb_ls[1]-wp.y)**2)
-
-        # Add safety margin (attribute of car) to bounds
-        ub = ub - safety_margin
-        lb = lb + safety_margin
-
-        # Check feasibility of the path
-        if ub < lb:
-            # Upper and lower bound of 0 indicate an infeasible path
-            # given the specified safety margin
-            ub, lb = 0.0, 0.0
-
-        # Compute absolute angle of bound cell
-        angle_ub = np.mod(math.pi/2 + wp.psi + math.pi, 2 * math.pi) - math.pi
-        angle_lb = np.mod(-math.pi/2 + wp.psi + math.pi, 2 * math.pi) - math.pi
-
-        # Compute cell on bound for computed distance ub and lb
-        ub_ls = wp.x + ub * np.cos(angle_ub), wp.y + ub * np.sin(angle_ub)
-        lb_ls = wp.x - lb * np.cos(angle_lb), wp.y - lb * np.sin(angle_lb)
-        border_cells = (ub_ls, lb_ls)
-
-        return lb, ub, border_cells
-
     def add_obstacles(self, obstacles):
         """
         Add obstacles to the path.
@@ -753,7 +673,7 @@ class ReferencePath:
 if __name__ == '__main__':
 
     # Select Path | 'Race' or 'Q'
-    path = 'Q'
+    path = 'Race'
 
     # Create Map
     if path == 'Race':
@@ -806,7 +726,7 @@ if __name__ == '__main__':
         print('Invalid path!')
         exit(1)
 
-    ub, lb, border_cells = reference_path.update_path_constraints(0, reference_path.n_waypoints, 0.60, 0.1)
+    ub, lb, border_cells = reference_path.update_path_constraints(0, reference_path.n_waypoints, 0.02, 0.01)
     # Get x and y locations of border cells for upper and lower bound
     for wp_id in range(reference_path.n_waypoints):
         if ub[wp_id] > 0.0 and lb[wp_id] > 0.0:
