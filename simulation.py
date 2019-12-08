@@ -26,6 +26,17 @@ if __name__ == '__main__':
         reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
                                        smoothing_distance=5, max_width=0.23,
                                        circular=True)
+        # Add obstacles
+        obs1 = Obstacle(cx=0.0, cy=0.0, radius=0.05)
+        obs2 = Obstacle(cx=-0.8, cy=-0.5, radius=0.05)
+        obs3 = Obstacle(cx=-0.7, cy=-1.5, radius=0.05)
+        obs4 = Obstacle(cx=-0.3, cy=-1.0, radius=0.05)
+        obs5 = Obstacle(cx=0.3, cy=-1.0, radius=0.05)
+        obs6 = Obstacle(cx=0.75, cy=-1.5, radius=0.05)
+        obs7 = Obstacle(cx=0.7, cy=-0.9, radius=0.05)
+        obs8 = Obstacle(cx=1.2, cy=0.0, radius=0.05)
+        reference_path.add_obstacles([obs1, obs2, obs3, obs4, obs5, obs6, obs7,
+                                      obs8])
     elif sim_mode == 'Q':
         map = Map(file_path='map_floor2.png')
         wp_x = [-9.169, 11.9, 7.3, -6.95]
@@ -36,24 +47,17 @@ if __name__ == '__main__':
         reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
                                        smoothing_distance=5, max_width=1.50,
                                        circular=False)
+        obs1 = Obstacle(cx=-6.3, cy=-11.1, radius=0.20)
+        obs2 = Obstacle(cx=-2.2, cy=-6.8, radius=0.25)
+        obs4 = Obstacle(cx=2.0, cy=-0.2, radius=0.25)
+        obs8 = Obstacle(cx=6.0, cy=5.0, radius=0.3)
+        obs9 = Obstacle(cx=7.42, cy=4.97, radius=0.3)
+        reference_path.add_obstacles([obs1, obs2, obs4, obs8, obs9])
     else:
         print('Invalid Simulation Mode!')
         map, wp_x, wp_y, path_resolution, reference_path \
             = None, None, None, None, None
         exit(1)
-
-    obs1 = Obstacle(cx=0.0, cy=0.0, radius=0.05)
-    obs2 = Obstacle(cx=-0.8, cy=-0.5, radius=0.05)
-    obs3 = Obstacle(cx=-0.7, cy=-1.5, radius=0.07)
-    obs4 = Obstacle(cx=-0.3, cy=-1.0, radius=0.07)
-    obs5 = Obstacle(cx=0.3, cy=-1.0, radius=0.05)
-    obs6 = Obstacle(cx=0.75, cy=-1.5, radius=0.07)
-    obs7 = Obstacle(cx=0.7, cy=-0.9, radius=0.08)
-    obs8 = Obstacle(cx=1.2, cy=0.0, radius=0.08)
-    obs9 = Obstacle(cx=0.7, cy=-0.1, radius=0.05)
-    obs10 = Obstacle(cx=1.1, cy=-0.6, radius=0.07)
-    reference_path.add_obstacles([obs1, obs2, obs3, obs4, obs5, obs6, obs7,
-                                  obs8, obs9, obs10])
 
     ################
     # Motion Model #
@@ -65,7 +69,7 @@ if __name__ == '__main__':
     t_0 = 0.0
     V_MAX = 2.5
 
-    car = BicycleModel(length=0.12, width=0.06, reference_path=reference_path,
+    car = BicycleModel(length=0.56, width=0.33, reference_path=reference_path,
                        e_y=e_y_0, e_psi=e_psi_0, t=t_0)
 
     ##############
@@ -83,7 +87,7 @@ if __name__ == '__main__':
     mpc = MPC(car, N, Q, R, QN, StateConstraints, InputConstraints)
 
     # Compute speed profile
-    SpeedProfileConstraints = {'a_min': -1.0, 'a_max': 1.0,
+    SpeedProfileConstraints = {'a_min': -0.05, 'a_max': 0.5,
                                'v_min': 0, 'v_max': V_MAX, 'ay_max': 1.0}
     car.reference_path.compute_speed_profile(SpeedProfileConstraints)
 
@@ -92,7 +96,7 @@ if __name__ == '__main__':
     ##############
 
     # Sampling time
-    Ts = 0.20
+    Ts = 0.05
     t = 0
     car.set_sampling_time(Ts)
 
@@ -121,8 +125,8 @@ if __name__ == '__main__':
 
         # Plot path and drivable area
         reference_path.show()
-        plt.scatter(x_log, y_log, c=v_log, s=10)
-        plt.colorbar()
+        #plt.scatter(x_log, y_log, c=v_log, s=10)
+        #plt.colorbar()
 
         # Plot MPC prediction
         mpc.show_prediction()
@@ -137,6 +141,5 @@ if __name__ == '__main__':
         plt.title('MPC Simulation: v(t): {:.2f}, delta(t): {:.2f}, Duration: '
                   '{:.2f} s'.format(u[0], u[1], t))
 
-        plt.pause(0.00001)
-    print(min(v_log))
+        plt.pause(0.000001)
     plt.show()

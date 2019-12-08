@@ -240,7 +240,7 @@ class SpatialBicycleModel(ABC):
 
         # Model ellipsoid around the car
         length = self.l / np.sqrt(2)
-        width = self.w / np.sqrt(2)
+        width = self.w / np.sqrt(2) + 0.02
 
         return length, width
 
