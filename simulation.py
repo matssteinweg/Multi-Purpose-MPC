@@ -10,7 +10,7 @@ from scipy import sparse
 if __name__ == '__main__':
 
     # Select Simulation Mode | 'Race' or 'Q'
-    sim_mode = 'Q'
+    sim_mode = 'Race'
 
     # Create Map
     if sim_mode == 'Race':
@@ -28,15 +28,17 @@ if __name__ == '__main__':
                                        circular=True)
         # Add obstacles
         obs1 = Obstacle(cx=0.0, cy=0.0, radius=0.05)
-        obs2 = Obstacle(cx=-0.8, cy=-0.5, radius=0.05)
+        obs2 = Obstacle(cx=-0.8, cy=-0.5, radius=0.08)
         obs3 = Obstacle(cx=-0.7, cy=-1.5, radius=0.05)
-        obs4 = Obstacle(cx=-0.3, cy=-1.0, radius=0.05)
-        obs5 = Obstacle(cx=0.3, cy=-1.0, radius=0.05)
-        obs6 = Obstacle(cx=0.75, cy=-1.5, radius=0.05)
-        obs7 = Obstacle(cx=0.7, cy=-0.9, radius=0.05)
-        obs8 = Obstacle(cx=1.2, cy=0.0, radius=0.05)
-        reference_path.add_obstacles([obs1, obs2, obs3, obs4, obs5, obs6, obs7,
-                                      obs8])
+        obs4 = Obstacle(cx=-0.3, cy=-1.0, radius=0.08)
+        obs5 = Obstacle(cx=0.27, cy=-1.0, radius=0.05)
+        obs6 = Obstacle(cx=0.78, cy=-1.47, radius=0.05)
+        obs7 = Obstacle(cx=0.73, cy=-0.9, radius=0.07)
+        obs8 = Obstacle(cx=1.2, cy=0.0, radius=0.08)
+        obs9 = Obstacle(cx=0.67, cy=-0.05, radius=0.06)
+
+        map.add_obstacles([obs1, obs2, obs3, obs4, obs5, obs6, obs7,
+                                      obs8, obs9])
     elif sim_mode == 'Q':
         map = Map(file_path='map_floor2.png')
         wp_x = [-9.169, 11.9, 7.3, -6.95]
@@ -52,7 +54,7 @@ if __name__ == '__main__':
         obs4 = Obstacle(cx=2.0, cy=-0.2, radius=0.25)
         obs8 = Obstacle(cx=6.0, cy=5.0, radius=0.3)
         obs9 = Obstacle(cx=7.42, cy=4.97, radius=0.3)
-        reference_path.add_obstacles([obs1, obs2, obs4, obs8, obs9])
+        map.add_obstacles([obs1, obs2, obs4, obs8, obs9])
     else:
         print('Invalid Simulation Mode!')
         map, wp_x, wp_y, path_resolution, reference_path \
@@ -67,9 +69,9 @@ if __name__ == '__main__':
     e_y_0 = 0.0
     e_psi_0 = 0.0
     t_0 = 0.0
-    V_MAX = 2.5
+    V_MAX = 1.0
 
-    car = BicycleModel(length=0.56, width=0.33, reference_path=reference_path,
+    car = BicycleModel(length=0.12, width=0.06, reference_path=reference_path,
                        e_y=e_y_0, e_psi=e_psi_0, t=t_0)
 
     ##############
@@ -77,9 +79,9 @@ if __name__ == '__main__':
     ##############
 
     N = 30
-    Q = sparse.diags([1.0, 0.0, 0.0])
-    R = sparse.diags([1.0, 0.0])
-    QN = sparse.diags([0.0, 0.0, 0.0])
+    Q = sparse.diags([0.3, 0.0, 0.0])
+    R = sparse.diags([0.5, 0.0])
+    QN = sparse.diags([0.3, 0.0, 0.0])
     InputConstraints = {'umin': np.array([0.0, -np.tan(0.66)/car.l]),
                         'umax': np.array([V_MAX, np.tan(0.66)/car.l])}
     StateConstraints = {'xmin': np.array([-np.inf, -np.inf, -np.inf]),
@@ -87,8 +89,8 @@ if __name__ == '__main__':
     mpc = MPC(car, N, Q, R, QN, StateConstraints, InputConstraints)
 
     # Compute speed profile
-    SpeedProfileConstraints = {'a_min': -0.05, 'a_max': 0.5,
-                               'v_min': 0, 'v_max': V_MAX, 'ay_max': 1.0}
+    SpeedProfileConstraints = {'a_min': -0.1, 'a_max': 0.5,
+                               'v_min': 0, 'v_max': V_MAX, 'ay_max': 4.0}
     car.reference_path.compute_speed_profile(SpeedProfileConstraints)
 
     ##############
@@ -119,27 +121,21 @@ if __name__ == '__main__':
         y_log.append(car.temporal_state.y)
         v_log.append(u[0])
 
-        ###################
-        # Plot Simulation #
-        ###################
+        # Increase simulation time
+        t += Ts
 
         # Plot path and drivable area
         reference_path.show()
-        #plt.scatter(x_log, y_log, c=v_log, s=10)
-        #plt.colorbar()
-
-        # Plot MPC prediction
-        mpc.show_prediction()
 
         # Plot car
         car.show()
 
-        # Increase simulation time
-        t += Ts
+        # Plot MPC prediction
+        if mpc.current_prediction is not None:
+            mpc.show_prediction()
 
         # Set figure title
         plt.title('MPC Simulation: v(t): {:.2f}, delta(t): {:.2f}, Duration: '
                   '{:.2f} s'.format(u[0], u[1], t))
-
-        plt.pause(0.000001)
-    plt.show()
+        plt.axis('off')
+        plt.pause(0.001)

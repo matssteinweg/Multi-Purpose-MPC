@@ -240,8 +240,8 @@ class SpatialBicycleModel(ABC):
 
         # Model ellipsoid around the car
         length = self.l / np.sqrt(2)
-        width = self.w / np.sqrt(2) + 0.02
-
+        width = self.w / np.sqrt(2)
+        widht = 0
         return length, width
 
     def get_current_waypoint(self):
@@ -310,7 +310,7 @@ class SpatialBicycleModel(ABC):
 
         # Add rectangle to current axis
         ax = plt.gca()
-        ax.add_patch(safety_margin)
+        #ax.add_patch(safety_margin)
         ax.add_patch(car)
 
     @abstractmethod
