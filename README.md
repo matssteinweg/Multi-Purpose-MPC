@@ -2,7 +2,7 @@
 
 1. [Introduction](##Introduction)
 2. [Implementation Details](##ImplementationDetails)
-   1. [MPC](#MPC)
+   1. [MPC](##MPC)
 3. [How-To](##How-To)
 4. [Limitations and Outlook](##Limitations and Outlook)
 4. [Contributors](#Contributors)
@@ -19,3 +19,15 @@ The developed algorithm was tested on a 1:10 RC car provided by [KTH Smart Mobil
 The controller is implemented in a way that enables its application to all three tasks by merely tuning the weight matrices of the underlying optimization problem. The illustration below shows the obstacle avoidance task in simulation.
 
 The rest of this readme is structured as follows. In [Section 2](##Components) we will present an overview of the entire system and discuss all fundamental components of the implementation in detail. In [Section 3](##How-To) we will provide guidelines for using the implementation in simulation and practice. [Section 4](##Limitations) will be dedicated to analyzing limitations of the current version of the controller and outline potential extensions of the implementation.
+
+## Implementation Details
+
+
+## How-To
+
+## Limitations and Outlook
+
+## Contributors
+
+[Arne Schneuing](mailto:arne-schneuing@rwth-aachen.de)
+[Mats Steinweg](mailto:mats-steinweg@rwth-aachen.de)
