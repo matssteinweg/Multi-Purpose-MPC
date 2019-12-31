@@ -1,11 +1,10 @@
 # Multi-Purpose MPC
 
-1. [Introduction](##Introduction)
-2. [Implementation Details](##ImplementationDetails)
+1. [Introduction](#Introduction)
+2. [Implementation Details](#ImplementationDetails)
    1. [MPC](##MPC)
 3. [How-To](##How-To)
-4. [Limitations and Outlook](##Limitations and Outlook)
-4. [Contributors](#Contributors)
+4. [Limitations and Outlook](#LimitationsOutlook)
 
 ## Introduction
 
@@ -26,8 +25,3 @@ The rest of this readme is structured as follows. In [Section 2](##Components) w
 ## How-To
 
 ## Limitations and Outlook
-
-## Contributors
-
-[Arne Schneuing](mailto:arne-schneuing@rwth-aachen.de)
-[Mats Steinweg](mailto:mats-steinweg@rwth-aachen.de)
