@@ -2,7 +2,7 @@
 
 1. [Introduction](#introduction)
 2. [Implementation Details](#implementation-details)
-   1. [Model Predictive Controller (MPC)](#model-predictive-controller-(mpc))
+   1. Model Predictive Controller (MPC)
 3. [How-To](#how-to)
 4. [Limitations and Outlook](#limitations-and-outlook)
 
