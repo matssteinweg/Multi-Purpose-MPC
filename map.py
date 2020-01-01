@@ -6,24 +6,36 @@ from skimage.draw import line_aa
 
 
 class Map:
-    """
-    Handle for map message. Contains a subscriber to the map topic and
-    processes the map. Numpy array version of the
-    map available as member variable.
-    """
-    def __init__(self, file_path, value_unknown=50, threshold_occupied=90, origin=[-30.0, -24.0], resolution=0.059999):
+    def __init__(self, file_path, threshold_occupied=100,
+                 origin=(-30.0, -24.0), resolution=0.06):
+        """
+        Constructor for map object. Map contains occupancy grid map data of
+        environment as well as meta information.
+        :param file_path: path to image of map
+        :param threshold_occupied: threshold value for binarization of map
+        image
+        :param origin: x and y coordinates of map origin in world coordinates
+        [m]
+        :param resolution: resolution in m/px
+        """
 
-        self.value_unknown = value_unknown
+        # Set binarization threshold
         self.threshold_occupied = threshold_occupied
-        # instantiate member variables
-        self.data = np.array(Image.open(file_path))[:, :, 0]  # numpy array containing map data
+
+        # Numpy array containing map data
+        self.data = np.array(Image.open(file_path))[:, :, 0]
+
+        # Process raw map image
         self.process_map()
+
+        # Store meta information
         self.height = self.data.shape[0]  # height of the map in px
         self.width = self.data.shape[1]  # width of the map in px
         self.resolution = resolution  # resolution of the map in m/px
         self.origin = origin  # x and y coordinates of map origin
         # (bottom-left corner) in m
 
+        # Containers for user-specified additional obstacles and boundaries
         self.obstacles = list()
         self.boundaries = list()
 
@@ -35,18 +47,18 @@ class Map:
         :param y: y coordinate in global coordinate system
         :return: discrete x and y coordinates in px
         """
-        d_x = np.floor((x - self.origin[0]) / self.resolution)
-        d_y = np.floor((y - self.origin[1]) / self.resolution)
+        dx = int(np.floor((x - self.origin[0]) / self.resolution))
+        dy = int(np.floor((y - self.origin[1]) / self.resolution))
 
-        return int(d_x), int(d_y)
+        return dx, dy
 
     def m2w(self, dx, dy):
         """
-        World2Map. Transform coordinates from global coordinate system to
-        map coordinates.
-        :param x: x coordinate in global coordinate system
-        :param y: y coordinate in global coordinate system
-        :return: discrete x and y coordinates in px
+        Map2World. Transform coordinates from map coordinate system to
+        global coordinates.
+        :param dx: x coordinate in map coordinate system
+        :param dy: y coordinate in map coordinate system
+        :return: x and y coordinates of cell center in global coordinate system
         """
         x = (dx + 0.5) * self.resolution + self.origin[0]
         y = (dy + 0.5) * self.resolution + self.origin[1]
@@ -55,15 +67,16 @@ class Map:
 
     def add_obstacles(self, obstacles):
         """
-        Add obstacles to the path.
+        Add obstacles to the map.
         :param obstacles: list of obstacle objects
         """
 
         # Extend list of obstacles
         self.obstacles.extend(obstacles)
 
-        # Iterate over list of obstacles
+        # Iterate over list of new obstacles
         for obstacle in obstacles:
+
             # Compute radius of circular object in pixels
             radius_px = int(np.ceil(obstacle.radius / self.resolution))
             # Get center coordinates of obstacle in map coordinates
@@ -76,6 +89,11 @@ class Map:
                                                 cx_px+radius_px][index] = 0
 
     def add_boundary(self, boundaries):
+        """
+        Add boundaries to the map.
+        :param boundaries: list of tuples containing coordinates of boundaries'
+        start and end points
+        """
 
         # Extend list of boundaries
         self.boundaries.extend(boundaries)
@@ -89,10 +107,17 @@ class Map:
                 self.data[y, x] = 0
 
     def process_map(self):
-        self.data = np.where(self.data >= 100, 1, 0)
+        """
+        Process raw map image. Binarization and removal of small holes in map.
+        """
+
+        # Binarization using specified threshold
+        # 1 corresponds to free, 0 to occupied
+        self.data = np.where(self.data >= self.threshold_occupied, 1, 0)
+
+        # Remove small holes in map corresponding to spurious measurements
         self.data = remove_small_holes(self.data, area_threshold=5,
                                        connectivity=8).astype(np.int8)
-
 
 
 if __name__ == '__main__':
