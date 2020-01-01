@@ -32,9 +32,19 @@ The multi-purpose control framework presented in this repository consists of fou
 
 ### Map 
 
+The map class is a handler for the Occupancy Grid Map of the environment. The map is represented as a binary array classifying each cell as either free or occupied. Moreover, the Map class can act as a wrapper around a potential obstacle detection algorithm. By incorporating e.g. LiDAR measurements and updating the Occupancy Grid Map accordingly, new information about the drivable area can be passed to the reference path object.
+
 ### Reference Path
 
+The reference path class is where most of the computations are performed. Ultimately, this is where all the available information is aggregated and processed before passing it to the Model Predictive Controller. In our simulation as well as the real-world test scenario, the entire reference path is known in advance. Consequently, the object contains a list of waypoints along the path at a specified resolution. Each waypoint contains information about its location and orientation within the world coordinate frame as well as the local curvature of the reference path. Furthermore, a speed profile can be computed that associated a reference velocity with each waypoint based on a maximum velocity of the car and the curvature of the path.
+In order to be able to account for obstacles in the environment, each waypoint has an additional attribute which contains information about the width of the drivable area on both sides of the center-line. This information is computed dynamically from the information provided by the map class. Consequently, the reference path object contains all necessary information to track the reference path while constraints imposed by obstacles in the environment.
+
 ### Spatial Bicycle Model
+
+To model the dynamics of the car, we employ a simple kinematic bicycle model. We transform the model into the spatial domain in order to be able to formulate the path tracking problem more intuitively by taking as state variables the deviation from the provided center-line in terms of location as well as orientation. Besides the more intuitivate formulation of the problem, the reformulation of the model allows for including time as a state variable and perform time-optimal driving. 
+The implementation of the spatial bicycle model is based on [Stability Conditions for Linear Time-Varying Model Predictive Control in Autonomous
+Driving](http://urn.kb.se/resolve?urn=urn:nbn:se:kth:diva-220576) by Lima, Mårtensson and Wahlberg as well as [Towards Time-Optimal Race Car Driving Using Nonlinear MPC in Real-Time](https://www.researchgate.net/profile/Robin_Verschueren/publication/269860931_Towards_Time-Optimal_Race_Car_Driving_Using_Nonlinear_MPC_in_Real-Time/links/56ab66e108aeadd1bdce436b/Towards-Time-Optimal-Race-Car-Driving-Using-Nonlinear-MPC-in-Real-Time.pdf?origin=publication_detail) by Vershuren, De Bruyne, Zanon and Frash. For more details, please consult the original publications.
+In our implementation, we use the non-linear spatial bicycle model for the simulation of the car. For the computation of the control signals, we resort to a Linear-Time-Variant formulation of the model based on the reference path.
 
 ### Model Predictive Controller
 
