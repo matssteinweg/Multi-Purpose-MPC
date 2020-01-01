@@ -23,7 +23,7 @@ The rest of this readme is structured as follows. In [Section 2](##Components) w
 ## Implementation Details
 
 <p align="center"> 
-<img src="/Images/MPC_Framework.spdf">
+<img src="/Images/MPC_Framework.pdf">
 </p>
 
 ### Map 
