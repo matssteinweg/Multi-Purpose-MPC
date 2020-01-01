@@ -2,7 +2,7 @@
 
 1. [Introduction](#introduction)
 2. [Implementation Details](#implementation-details)
-   1. Model Predictive Controller (MPC)
+   1. [Model Predictive Controller (MPC)](#model-predictive-controller)
 3. [How-To](#how-to)
 4. [Limitations and Outlook](#limitations-and-outlook)
 
@@ -21,7 +21,7 @@ The rest of this readme is structured as follows. In [Section 2](##Components) w
 
 ## Implementation Details
 
-### Model Predictive Controller (MPC)
+### Model Predictive Controller
 
 ## How-To
 
