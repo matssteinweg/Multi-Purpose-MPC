@@ -9,3 +9,5 @@ __pycache__/map.cpython-37.pyc
 __pycache__/MPC.cpython-37.pyc
 __pycache__/reference_path.cpython-37.pyc
 __pycache__/spatial_bicycle_models.cpython-37.pyc
+*.mp4
+*.png
