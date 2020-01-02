@@ -53,8 +53,25 @@ The weight matrices of the cost function to be minimized allow for influencing t
 
 ## How-To
 
+The implementation is based on a small set of libraries. For the optimization problem of the MPC we chose [OSQP](https://osqp.org) due to its simplicity and efficiency. Below we provide a list of all required libraries.
+
+```
+osqp
+numpy
+scipy
+skimage
+matplotlib
+```
+
 ### Simulation
+
+To start the simulation, go to ```simulation.py```. This script provides a template for loading a map image, specifying a reference path, setting up the motion model and running a simulation. This script was used to generate the GIF displayed above. All simulation parameters can be changed in this script, allowing to expolore the capabilities of the algorithm in different scenarios. Furthermore, the environment can be modified by adding obstacles and boundaries to the map. The modular structure of the implementation allows for an intuitive setup of the simulation, centered around the two functions ```u = mpc.get_control()``` and ```car.send_control(u)```.
 
 ### Real-World Testing
 
+In order to test the controller on a real car, we adapted certain components of the implementation to a ROS framework provided for the communication with the vehicle. Again, the modular structure facilitated a quick adaptation. For example, the pose attribute of the spatial bicycle model subscribed to the topic published to by the localization node. The map object is modified by an obstacle detection algorithm that subscribes to the LiDAR data collected by the car. Furthermore, the spatial bicycle model is modified to include a low-level control interface that sends the computed control signal to the respective actuators. We chose not to include the code for the real-world test in this repository, as most of the code is tailored towards the proprietary software of the RC car.
+
 ## Limitations and Outlook
+
+The test scenarios, in simulation as well as real-world, provided valuable insights into limitations of the controller and illustrated how modifications to the algorithm might improvide performance. The greatest limitations is to be seen in the kinematic bicycle model which doesn't account for a number of physical effects such as tyre slip and lateral forces. Moreover, the car is assumed to be velocity-controlled, neglecting the dynamics of the low-level speed controller. We are looking to extend the implementation to include a dynamic bicycle model. We expect a more advanced model to significantly increase the performance on time-optimal driving. Using the current model, time-optimal driving corresponds to finding the shortest path. The algorithm is expected to display much more realistic behaviour upon the inclusion of additional physical effects.
+A second limitation is related to the task of obstacle avoidance. The avoidance maneuver is entirely based on modifying the constraints of the optimization problem, limiting the allowed deviation from the center-line to the drivable area. This algorithm proves to work very well in simulation. However, uncertainties in the LiDAR measurements which lead to spurious elements in the dynamically updated map data, can lead to inconsitencies in the prediction. This is especially problematic in the case of obstacles that can be avoided on both sides. We are looking to introduce a more robust update of the driveable area constraints that ensures consistency across prediction horizons.
