@@ -23,7 +23,7 @@ The controller is implemented in a way that enables its application to all three
 The rest of this readme is structured as follows. In [Section 2](##Components) we will present an overview of the entire system and discuss all fundamental components of the implementation in detail. In [Section 3](##How-To) we will provide guidelines for using the implementation in simulation and practice. [Section 4](##Limitations) will be dedicated to analyzing limitations of the current version of the controller and outline potential extensions of the implementation.
 
 <p align="center"> 
-![](obstacle_avoidance.gif)
+<img src="obstacle_avoidance.gif">
 </p>
 
 ## Implementation Details
