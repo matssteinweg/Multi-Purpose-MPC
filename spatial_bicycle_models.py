@@ -1,10 +1,13 @@
 import numpy as np
 from abc import abstractmethod
+
 try:
     from abc import ABC
 except:
     # for Python 2.7
     from abc import ABCMeta
+
+
     class ABC(object):
         __metaclass__ = ABCMeta
         pass
@@ -16,6 +19,7 @@ import math
 CAR = '#F1C40F'
 CAR_OUTLINE = '#B7950B'
 
+
 #########################
 # Temporal State Vector #
 #########################
@@ -23,12 +27,10 @@ CAR_OUTLINE = '#B7950B'
 class TemporalState:
     def __init__(self, x, y, psi):
         """
-        Temporal State Vector containing car pose (x, y, psi) and velocity
+        Temporal State Vector containing car pose (x, y, psi)
         :param x: x position in global coordinate system | [m]
         :param y: y position in global coordinate system | [m]
         :param psi: yaw angle | [rad]
-        :param v_x: velocity in x direction (car frame) | [m/s]
-        :param v_y: velocity in y direction (car frame) | [m/s]
         """
         self.x = x
         self.y = y
@@ -41,7 +43,6 @@ class TemporalState:
         Overload Sum-Add operator.
         :param other: numpy array to be added to state vector
         """
-
         for state_id in range(len(self.members)):
             vars(self)[self.members[state_id]] += other[state_id]
         return self
@@ -59,7 +60,8 @@ class SpatialState(ABC):
     @abstractmethod
     def __init__(self):
         self.members = None
-        pass
+        self.e_y = None
+        self.e_psi = None
 
     def __getitem__(self, item):
         if isinstance(item, int):
@@ -92,7 +94,7 @@ class SpatialState(ABC):
 
 
 class SimpleSpatialState(SpatialState):
-    def __init__(self, e_y, e_psi, t):
+    def __init__(self, e_y=0.0, e_psi=0.0, t=0.0):
         """
         Simplified Spatial State Vector containing orthogonal deviation from
         reference path (e_y), difference in orientation (e_psi) and velocity
@@ -114,18 +116,21 @@ class SimpleSpatialState(SpatialState):
 ####################################
 
 class SpatialBicycleModel(ABC):
-    def __init__(self, reference_path, length, width):
+    def __init__(self, reference_path, length, width, Ts):
         """
         Abstract Base Class for Spatial Reformulation of Bicycle Model.
         :param reference_path: reference path object to follow
+        :param length: length of car in m
+        :param width: width of car in m
+        :param Ts: sampling time of model
         """
 
         # Precision
         self.eps = 1e-12
 
         # Car Parameters
-        self.l = length
-        self.w = width
+        self.length = length
+        self.width = width
         self.safety_margin = self._compute_safety_margin()
 
         # Reference Path
@@ -134,8 +139,8 @@ class SpatialBicycleModel(ABC):
         # Set initial distance traveled
         self.s = 0.0
 
-        # Set sampling time to None (Initialization required)
-        self.sampling_time = None
+        # Set sampling time
+        self.Ts = Ts
 
         # Set initial waypoint ID
         self.wp_id = 0
@@ -149,69 +154,76 @@ class SpatialBicycleModel(ABC):
         # Declare temporal state variable | Initialization in sub-class
         self.temporal_state = None
 
-        # Declare system matrices of linearized model | Used for MPC
-        self.A, self.B = None, None
-
-    def s2t(self, reference_waypoint=None, reference_state=None):
+    def s2t(self, reference_waypoint, reference_state):
         """
-        Convert spatial state to temporal state. Either convert self.spatial_
-        state with current waypoint as reference or provide reference waypoint
-        and reference_state.
-        :return x, y, psi
+        Convert spatial state to temporal state given a reference waypoint.
+        :param reference_waypoint: waypoint object to use as reference
+        :param reference_state: state vector as np.array to use as reference
+        :return Temporal State equivalent to reference state
         """
 
-        # Compute spatial state for current waypoint if no waypoint given
-        if reference_waypoint is None and reference_state is None:
-
-            # compute temporal state variables
-            x = self.current_waypoint.x - self.spatial_state.e_y * np.sin(
-                self.current_waypoint.psi)
-            y = self.current_waypoint.y + self.spatial_state.e_y * np.cos(
-                self.current_waypoint.psi)
-            psi = self.current_waypoint.psi + self.spatial_state.e_psi
-
-        else:
-
-            # compute temporal state variables
+        # Compute temporal state variables
+        if isinstance(reference_state, np.ndarray):
             x = reference_waypoint.x - reference_state[0] * np.sin(
                 reference_waypoint.psi)
             y = reference_waypoint.y + reference_state[0] * np.cos(
                 reference_waypoint.psi)
             psi = reference_waypoint.psi + reference_state[1]
+        elif isinstance(reference_state, SpatialState):
+            x = reference_waypoint.x - reference_state.e_y * np.sin(
+                reference_waypoint.psi)
+            y = reference_waypoint.y + reference_state.e_y * np.cos(
+                reference_waypoint.psi)
+            psi = reference_waypoint.psi + reference_state.e_psi
+        else:
+            print('Reference State type not supported!')
+            x, y, psi = None, None, None
+            exit(1)
 
-        return x, y, psi
+        return TemporalState(x, y, psi)
 
-    def t2s(self):
+    def t2s(self, reference_waypoint, reference_state):
         """
         Convert spatial state to temporal state. Either convert self.spatial_
         state with current waypoint as reference or provide reference waypoint
         and reference_state.
-        :return x, y, psi
+        :return Spatial State equivalent to reference state
         """
 
-        # compute temporal state variables
-        e_y = np.cos(self.current_waypoint.psi) * \
-              (self.temporal_state.y - self.current_waypoint.y) - \
-        np.sin(self.current_waypoint.psi) * (self.temporal_state.x -
-                                             self.current_waypoint.x)
-        e_psi = self.temporal_state.psi - self.current_waypoint.psi
-        e_psi = np.mod(e_psi + math.pi, 2*math.pi) - math.pi
-        t = 0
+        # Compute spatial state variables
+        if isinstance(reference_state, np.ndarray):
+            e_y = np.cos(reference_waypoint.psi) * \
+                  (reference_state[1] - reference_waypoint.y) - \
+                  np.sin(reference_waypoint.psi) * (reference_state[0] -
+                                                    reference_waypoint.x)
+            e_psi = reference_state[2] - reference_waypoint.psi
+
+            # Ensure e_psi is kept within range (-pi, pi]
+            e_psi = np.mod(e_psi + math.pi, 2 * math.pi) - math.pi
+        elif isinstance(reference_state, TemporalState):
+            e_y = np.cos(reference_waypoint.psi) * \
+                  (reference_state.y - reference_waypoint.y) - \
+                  np.sin(reference_waypoint.psi) * (reference_state.x -
+                                                    reference_waypoint.x)
+            e_psi = reference_state.psi - reference_waypoint.psi
+
+            # Ensure e_psi is kept within range (-pi, pi]
+            e_psi = np.mod(e_psi + math.pi, 2 * math.pi) - math.pi
+        else:
+            print('Reference State type not supported!')
+            e_y, e_psi = None, None
+            exit(1)
+
+        # time state can be set to zero since it's only relevant for the MPC
+        # prediction horizon
+        t = 0.0
 
         return SimpleSpatialState(e_y, e_psi, t)
-
-    def set_sampling_time(self, Ts):
-        """
-        Set sampling time of bicycle model.
-        :param Ts: sampling time in s
-        """
-        self.Ts = Ts
 
     def drive(self, u):
         """
         Drive.
-        :param u: input vector
-        :return: numpy array with spatial derivatives for all state variables
+        :param u: input vector containing [v, delta]
         """
 
         # Get input signals
@@ -220,7 +232,7 @@ class SpatialBicycleModel(ABC):
         # Compute temporal state derivatives
         x_dot = v * np.cos(self.temporal_state.psi)
         y_dot = v * np.sin(self.temporal_state.psi)
-        psi_dot = v / self.l * np.tan(delta)
+        psi_dot = v / self.length * np.tan(delta)
         temporal_derivatives = np.array([x_dot, y_dot, psi_dot])
 
         # Update spatial state (Forward Euler Approximation)
@@ -239,15 +251,13 @@ class SpatialBicycleModel(ABC):
         """
 
         # Model ellipsoid around the car
-        length = self.l / np.sqrt(2)
-        width = self.w / np.sqrt(2)
-        widht = 0
-        return length, width
+        safety_margin = self.width / np.sqrt(2)
+
+        return safety_margin
 
     def get_current_waypoint(self):
         """
-        Create waypoint on reference path at current location of car by
-        interpolation information from given path waypoints.
+        Get closest waypoint on reference path based on car's current location.
         """
 
         # Compute cumulative path length
@@ -256,7 +266,7 @@ class SpatialBicycleModel(ABC):
         # so far
         greater_than_threshold = length_cum > self.s
         next_wp_id = greater_than_threshold.searchsorted(True)
-        # Get previous index for interpolation
+        # Get previous index
         prev_wp_id = next_wp_id - 1
 
         # Get distance traveled for both enclosing waypoints
@@ -269,19 +279,6 @@ class SpatialBicycleModel(ABC):
         else:
             self.wp_id = prev_wp_id
             self.current_waypoint = self.reference_path.waypoints[prev_wp_id]
-        #
-        # # Weight for next waypoint
-        # w = (s_next - self.s) / (s_next - s_prev)
-        #
-        # # Interpolate between the two waypoints
-        # prev_wp = self.reference_path.waypoints[prev_wp_id]
-        # next_wp = self.reference_path.waypoints[next_wp_id]
-        # x = w * next_wp.x + (1 - w) * prev_wp.x
-        # y = w * next_wp.y + (1 - w) * prev_wp.y
-        # psi = w * next_wp.psi + (1 - w) * prev_wp.psi
-        # kappa = w * next_wp.kappa + (1 - w) * prev_wp.kappa
-
-
 
     def show(self):
         """
@@ -293,24 +290,22 @@ class SpatialBicycleModel(ABC):
         # Get current angle with respect to x-axis
         yaw = np.rad2deg(self.temporal_state.psi)
         # Draw rectangle
-        car = plt_patches.Rectangle(cog, width=self.l, height=self.w,
-                              angle=yaw, facecolor=CAR, edgecolor=CAR_OUTLINE, zorder=20)
+        car = plt_patches.Rectangle(cog, width=self.length, height=self.width,
+                                    angle=yaw, facecolor=CAR,
+                                    edgecolor=CAR_OUTLINE, zorder=20)
 
         # Shift center rectangle to match center of the car
-        car.set_x(car.get_x() - (self.l/2 * np.cos(self.temporal_state.psi) -
-                                 self.w/2 * np.sin(self.temporal_state.psi)))
-        car.set_y(car.get_y() - (self.w/2 * np.cos(self.temporal_state.psi) +
-                                 self.l/2 * np.sin(self.temporal_state.psi)))
-
-        # Show safety margin
-        safety_margin = plt_patches.Ellipse(cog, width=2*self.safety_margin[0],
-                                            height=2*self.safety_margin[1],
-                                            angle=yaw,
-                                            fill=False, edgecolor=CAR, zorder=20)
+        car.set_x(car.get_x() - (self.length / 2 *
+                                 np.cos(self.temporal_state.psi) -
+                                 self.width / 2 *
+                                 np.sin(self.temporal_state.psi)))
+        car.set_y(car.get_y() - (self.width / 2 *
+                                 np.cos(self.temporal_state.psi) +
+                                 self.length / 2 *
+                                 np.sin(self.temporal_state.psi)))
 
         # Add rectangle to current axis
         ax = plt.gca()
-        #ax.add_patch(safety_margin)
         ax.add_patch(car)
 
     @abstractmethod
@@ -318,7 +313,7 @@ class SpatialBicycleModel(ABC):
         pass
 
     @abstractmethod
-    def linearize(self):
+    def linearize(self, v_ref, kappa_ref, delta_s):
         pass
 
 
@@ -327,49 +322,29 @@ class SpatialBicycleModel(ABC):
 #################
 
 class BicycleModel(SpatialBicycleModel):
-    def __init__(self, length, width, reference_path, e_y, e_psi, t):
+    def __init__(self, reference_path, length, width, Ts):
         """
         Simplified Spatial Bicycle Model. Spatial Reformulation of Kinematic
         Bicycle Model. Uses Simplified Spatial State.
+        :param reference_path: reference path model is supposed to follow
         :param length: length of the car in m
         :param width: with of the car in m
-        :param reference_path: reference path model is supposed to follow
-        :param e_y: deviation from reference path | [m]
-        :param e_psi: heading offset from reference path | [rad]
+        :param Ts: sampling time of model in s
         """
 
         # Initialize base class
         super(BicycleModel, self).__init__(reference_path, length=length,
-                                           width=width)
+                                           width=width, Ts=Ts)
 
         # Initialize spatial state
-        self.spatial_state = SimpleSpatialState(e_y, e_psi, t)
+        self.spatial_state = SimpleSpatialState()
 
         # Number of spatial state variables
         self.n_states = len(self.spatial_state)
 
         # Initialize temporal state
-        self.temporal_state = self.s2t()
-
-    def s2t(self, reference_waypoint=None, reference_state=None):
-        """
-        Convert spatial state to temporal state. Either convert self.spatial_
-        state with current waypoint as reference or provide reference waypoint
-        and reference_state.
-        :return temporal state equivalent to self.spatial_state or provided
-        reference state
-        """
-
-        if reference_state is None and reference_waypoint is None:
-            # Get pose information from base class implementation
-            x, y, psi = super(BicycleModel, self).s2t()
-            # Compute simplified velocities
-        else:
-            # Get pose information from base class implementation
-            x, y, psi = super(BicycleModel, self).s2t(reference_waypoint,
-                                                            reference_state)
-
-        return TemporalState(x, y, psi)
+        self.temporal_state = self.s2t(reference_state=self.spatial_state,
+                                       reference_waypoint=self.current_waypoint)
 
     def get_temporal_derivatives(self, state, input, kappa):
         """
@@ -380,6 +355,7 @@ class BicycleModel(SpatialBicycleModel):
         :return: temporal derivatives of distance, angle and velocity
         """
 
+        # Get state and input variables
         e_y, e_psi, t = state
         v, delta = input
 
@@ -387,7 +363,7 @@ class BicycleModel(SpatialBicycleModel):
         s_dot = 1 / (1 - (e_y * kappa)) * v * np.cos(e_psi)
 
         # Compute yaw angle rate of change
-        psi_dot = v / self.l * np.tan(delta)
+        psi_dot = v / self.length * np.tan(delta)
 
         return s_dot, psi_dot
 
@@ -400,6 +376,7 @@ class BicycleModel(SpatialBicycleModel):
         :return: numpy array with spatial derivatives for all state variables
         """
 
+        # Get state and input variables
         e_y, e_psi, t = state
         v, delta = input
 
@@ -413,34 +390,28 @@ class BicycleModel(SpatialBicycleModel):
 
         return np.array([d_e_y_d_s, d_e_psi_d_s, d_t_d_s])
 
-    def linearize(self, v=None, kappa_r=None, delta_s=None):
+    def linearize(self, v_ref, kappa_ref, delta_s):
         """
-        Linearize the system equations around the current state and waypoint.
-        :param kappa_r: kappa of waypoint around which to linearize
+        Linearize the system equations around provided reference values.
+        :param v_ref: velocity reference around which to linearize
+        :param kappa_ref: kappa of waypoint around which to linearize
+        :param delta_s: distance between current waypoint and next waypoint
          """
-
-        # Get linearization state
-        if kappa_r is None and delta_s is None:
-            # Get curvature of linearization waypoint
-            kappa_r = self.reference_path.waypoints[self.wp_id].kappa
-            # Get delta_s
-            next_waypoint = self.reference_path.waypoints[self.wp_id + 1]
-            delta_s = next_waypoint - self.current_waypoint
 
         ###################
         # System Matrices #
         ###################
 
         # Construct Jacobian Matrix
-        a_1 = np.array([1,                    delta_s,      0])
-        a_2 = np.array([-kappa_r**2*delta_s,  1,            0])
-        a_3 = np.array([-kappa_r/v*delta_s,   0,            1])
+        a_1 = np.array([1, delta_s, 0])
+        a_2 = np.array([-kappa_ref ** 2 * delta_s, 1, 0])
+        a_3 = np.array([-kappa_ref / v_ref * delta_s, 0, 1])
 
-        b_1 = np.array([0,          0])
-        b_2 = np.array([0,   delta_s])
-        b_3 = np.array([-1/(v**2)*delta_s,          0])
+        b_1 = np.array([0, 0])
+        b_2 = np.array([0, delta_s])
+        b_3 = np.array([-1 / (v_ref ** 2) * delta_s, 0])
 
-        f = np.array([0.0, 0.0, 1/v*delta_s])
+        f = np.array([0.0, 0.0, 1 / v_ref * delta_s])
 
         A = np.stack((a_1, a_2, a_3), axis=0)
         B = np.stack((b_1, b_2, b_3), axis=0)
