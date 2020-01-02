@@ -23,7 +23,7 @@ The controller is implemented in a way that enables its applicability to all thr
 The rest of this readme is structured as follows. In [Section 2](##Components) we will present an overview of the entire system and discuss all fundamental components of the implementation in detail. In [Section 3](##How-To) we will provide guidelines for using the implementation in simulation and practice. [Section 4](##Limitations) will be dedicated to analyzing limitations of the current version of the controller and outline potential extensions of the implementation.
 
 <p align="center">
-<img src="animation.gif">
+<img src="Images/animation.gif">
 </p>
 
 ## Implementation Details
@@ -31,7 +31,7 @@ The rest of this readme is structured as follows. In [Section 2](##Components) w
 The multi-purpose control framework presented in this repository consists of four main components. These components are intended to make the implementation as modular as possible, facilitating extensions to certain components without having to alter the overall structure of the framework. An illustration of the components and their interaction is displayed below.
 
 <p align="center">
-<img src="MPC_Framework.png">
+<img src="Images/MPC_Framework.png">
 </p>
 
 ### Map 
