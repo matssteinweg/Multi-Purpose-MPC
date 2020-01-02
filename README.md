@@ -48,6 +48,13 @@ In our implementation, we use the non-linear spatial bicycle model for the simul
 
 ### Model Predictive Controller
 
+The Model Predictive Controller is based on a Linear Time-Varying model of the car dynamics. The control signal is recomputed at a specified frequency. Based on the current position of the car, the kinematic bicycle model is linearized around the waypoints on the path. The horizon of the optimization problem corresponds to the number of predicted waypoint and can be transformed into a prediction distance using the uniform distance between the waypoints. 
+The weight matrices of the cost function to be minimized allow for influencing the expected behavior of the car. Reference path tracking can be performed using large weights on the deviation from the center-line. Time-optimal driving, on the other hand, can be achieved by penalizing the time the car needs to arrive at the last waypoint of the horizon. This objective corresponds to maximizing the velocity of the car along the reference path, instructing the car to cut corners whenever possible. Finally, obstacle avoidance is performed by shifting the reference value away from the center-line towards the center of the detected drivable area. Thus, the car deviates from the original reference path in order to avoid obstacles with a maximum margin.
+
 ## How-To
+
+### Simulation
+
+### Real-World Testing
 
 ## Limitations and Outlook
