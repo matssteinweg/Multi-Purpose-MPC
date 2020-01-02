@@ -30,9 +30,11 @@ The rest of this readme is structured as follows. In [Section 2](##Components) w
 
 The multi-purpose control framework presented in this repository consists of four main components. These components are intended to make the implementation as modular as possible, facilitating extensions to certain components without having to alter the overall structure of the framework. An illustration of the components and their interaction is displayed below.
 
+<kbd>
 <p align="center"> 
 <img src="MPC_Framework.png">
 </p>
+</kbd>
 
 ### Map 
 
