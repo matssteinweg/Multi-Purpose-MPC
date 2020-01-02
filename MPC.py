@@ -2,7 +2,6 @@ import numpy as np
 import osqp
 from scipy import sparse
 import matplotlib.pyplot as plt
-from time import time
 
 # Colors
 PREDICTION = '#BA4A00'
@@ -13,16 +12,18 @@ PREDICTION = '#BA4A00'
 
 
 class MPC:
-    def __init__(self, model, N, Q, R, QN, StateConstraints, InputConstraints):
+    def __init__(self, model, N, Q, R, QN, StateConstraints, InputConstraints,
+                 ay_max):
         """
         Constructor for the Model Predictive Controller.
         :param model: bicycle model object to be controlled
-        :param T: time horizon | int
+        :param N: time horizon | int
         :param Q: state cost matrix
         :param R: input cost matrix
         :param QN: final state cost matrix
         :param StateConstraints: dictionary of state constraints
         :param InputConstraints: dictionary of input constraints
+        :param ay_max: maximum allowed lateral acceleration in curves
         """
 
         # Parameters
@@ -43,7 +44,7 @@ class MPC:
         self.input_constraints = InputConstraints
 
         # Maximum lateral acceleration
-        self.ay_max = 5.0
+        self.ay_max = ay_max
 
         # Current control and prediction
         self.current_prediction = None
@@ -52,7 +53,7 @@ class MPC:
         self.infeasibility_counter = 0
 
         # Current control signals
-        self.current_control = np.ones((self.nu*self.N))
+        self.current_control = np.zeros((self.nu*self.N))
 
         # Initialize Optimization Problem
         self.optimizer = osqp.OSQP()
@@ -73,7 +74,7 @@ class MPC:
         B = np.zeros((self.nx * (self.N + 1), self.nu * (self.N)))
         # Reference vector for state and input variables
         ur = np.zeros(self.nu*self.N)
-        xr = np.array([0.0, 0.0, 0.0])
+        xr = np.zeros(self.nx*(self.N+1))
         # Offset for equality constraint (due to B * (u - ur))
         uq = np.zeros(self.N * self.nx)
         # Dynamic state constraints
@@ -83,7 +84,7 @@ class MPC:
         umax_dyn = np.kron(np.ones(self.N), umax)
         # Get curvature predictions from previous control signals
         kappa_pred = np.tan(np.array(self.current_control[3::] +
-                                     self.current_control[-1:])) / self.model.l
+                                     self.current_control[-1:])) / self.model.length
 
         # Iterate over horizon
         for n in range(self.N):
@@ -113,12 +114,15 @@ class MPC:
 
         # Compute dynamic constraints on e_y
         ub, lb, _ = self.model.reference_path.update_path_constraints(
-                    self.model.wp_id+1, self.N, 2*self.model.safety_margin[1],
-            self.model.safety_margin[1])
+                    self.model.wp_id+1, self.N, 2*self.model.safety_margin,
+            self.model.safety_margin)
         xmin_dyn[0] = self.model.spatial_state.e_y
         xmax_dyn[0] = self.model.spatial_state.e_y
         xmin_dyn[self.nx::self.nx] = lb
         xmax_dyn[self.nx::self.nx] = ub
+
+        # Set reference for state as center-line of drivable area
+        xr[self.nx::self.nx] = (lb + ub) / 2
 
         # Get equality matrix
         Ax = sparse.kron(sparse.eye(self.N + 1),
@@ -146,8 +150,9 @@ class MPC:
         P = sparse.block_diag([sparse.kron(sparse.eye(self.N), self.Q), self.QN,
              sparse.kron(sparse.eye(self.N), self.R)], format='csc')
         q = np.hstack(
-            [np.kron(np.ones(self.N), -self.Q.dot(xr)), -self.QN.dot(xr),
-             -np.tile(np.array([self.R.A[0, 0], self.R.A[1, 1]]), self.N) * ur])
+            [-np.tile(np.diag(self.Q.A), self.N) * xr[:-self.nx],
+             -self.QN.dot(xr[-self.nx:]),
+             -np.tile(np.diag(self.R.A), self.N) * ur])
 
         # Initialize optimizer
         self.optimizer = osqp.OSQP()
@@ -167,7 +172,9 @@ class MPC:
         self.model.get_current_waypoint()
 
         # Update spatial state
-        self.model.spatial_state = self.model.t2s()
+        self.model.spatial_state = self.model.t2s(reference_state=
+            self.model.temporal_state, reference_waypoint=
+            self.model.current_waypoint)
 
         # Initialize optimization problem
         self._init_problem()
@@ -178,7 +185,8 @@ class MPC:
         try:
             # Get control signals
             control_signals = np.array(dec.x[-self.N*nu:])
-            control_signals[1::2] = np.arctan(control_signals[1::2] * self.model.l)
+            control_signals[1::2] = np.arctan(control_signals[1::2] *
+                                              self.model.length)
             v = control_signals[0]
             delta = control_signals[1]
 
@@ -189,7 +197,7 @@ class MPC:
             x = np.reshape(dec.x[:(self.N+1)*nx], (self.N+1, nx))
 
             # Update predicted temporal states
-            self.current_prediction = self.update_prediction(delta, x)
+            self.current_prediction = self.update_prediction(x)
 
             # Get current control signal
             u = np.array([v, delta])
@@ -213,7 +221,7 @@ class MPC:
 
         return u
 
-    def update_prediction(self, u, spatial_state_prediction):
+    def update_prediction(self, spatial_state_prediction):
         """
         Transform the predicted states to predicted x and y coordinates.
         Mainly for visualization purposes.
@@ -221,23 +229,19 @@ class MPC:
         :return: lists of predicted x and y coordinates
         """
 
-        # containers for x and y coordinates of predicted states
+        # Containers for x and y coordinates of predicted states
         x_pred, y_pred = [], []
 
-        # get current waypoint ID
-        #print('#########################')
-
+        # Iterate over prediction horizon
         for n in range(2, self.N):
-            associated_waypoint = self.model.reference_path.get_waypoint(self.model.wp_id+n)
+            # Get associated waypoint
+            associated_waypoint = self.model.reference_path.\
+                get_waypoint(self.model.wp_id+n)
+            # Transform predicted spatial state to temporal state
             predicted_temporal_state = self.model.s2t(associated_waypoint,
                                             spatial_state_prediction[n, :])
-            #print(spatial_state_prediction[n, 2])
-            #print('delta: ', u)
-            #print('e_y: ', spatial_state_prediction[n, 0])
-            #print('e_psi: ', spatial_state_prediction[n, 1])
-            #print('t: ', spatial_state_prediction[n, 2])
-            #print('+++++++++++++++++++++++')
 
+            # Save predicted coordinates in world coordinate frame
             x_pred.append(predicted_temporal_state.x)
             y_pred.append(predicted_temporal_state.y)
 
@@ -248,6 +252,7 @@ class MPC:
         Display predicted car trajectory in current axis.
         """
 
-        plt.scatter(self.current_prediction[0], self.current_prediction[1],
+        if self.current_prediction is not None:
+            plt.scatter(self.current_prediction[0], self.current_prediction[1],
                     c=PREDICTION, s=30)
 

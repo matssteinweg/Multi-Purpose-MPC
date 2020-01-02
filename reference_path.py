@@ -1,17 +1,17 @@
 import numpy as np
 import math
-from map import Map
+from map import Map, Obstacle
 from skimage.draw import line_aa
 import matplotlib.pyplot as plt
-import matplotlib.patches as plt_patches
 from scipy import sparse
 import osqp
 
 # Colors
 DRIVABLE_AREA = '#BDC3C7'
 WAYPOINTS = '#D0D3D4'
-OBSTACLE = '#2E4053'
 PATH_CONSTRAINTS = '#F5B041'
+OBSTACLE = '#2E4053'
+
 
 ############
 # Waypoint #
@@ -21,7 +21,9 @@ class Waypoint:
     def __init__(self, x, y, psi, kappa):
         """
         Waypoint object containing x, y location in global coordinate system,
-        orientation of waypoint psi and local curvature kappa
+        orientation of waypoint psi and local curvature kappa. Waypoint further
+        contains an associated reference velocity computed by the speed profile
+        and a path width specified by upper and lower bounds.
         :param x: x position in global coordinate system | [m]
         :param y: y position in global coordinate system | [m]
         :param psi: orientation of waypoint | [rad]
@@ -37,7 +39,9 @@ class Waypoint:
 
         # Information about drivable area at waypoint
         # upper and lower bound of drivable area orthogonal to
-        # waypoint orientation
+        # waypoint orientation.
+        # Upper bound: free drivable area to the left of center-line in m
+        # Lower bound: free drivable area to the right of center-line in m
         self.lb = None
         self.ub = None
         self.static_border_cells = None
@@ -51,35 +55,6 @@ class Waypoint:
         :return: euclidean distance between two waypoints
         """
         return ((self.x - other.x)**2 + (self.y - other.y)**2)**0.5
-
-
-############
-# Obstacle #
-############
-
-class Obstacle:
-    def __init__(self, cx, cy, radius):
-        """
-        Constructor for a circular obstacle to be place on a path.
-        :param cx: x coordinate of center of obstacle in world coordinates
-        :param cy: y coordinate of center of obstacle in world coordinates
-        :param radius: radius of circular obstacle in m
-        """
-
-        self.cx = cx
-        self.cy = cy
-        self.radius = radius
-
-    def show(self):
-        """
-        Display obstacle.
-        """
-
-        # Draw circle
-        circle = plt_patches.Circle(xy=(self.cx, self.cy), radius=
-                                            self.radius, color=OBSTACLE, zorder=20)
-        ax = plt.gca()
-        ax.add_patch(circle)
 
 
 ##################
@@ -155,8 +130,6 @@ class ReferencePath:
         wp_y = [wp for segment in wp_y for wp in segment] + [gp_y]
 
         # Smooth path
-        #wp_xs = wp_x[:self.smoothing_distance]
-        #wp_ys = wp_y[:self.smoothing_distance]
         wp_xs = []
         wp_ys = []
         for wp_id in range(self.smoothing_distance, len(wp_x) -
@@ -165,8 +138,6 @@ class ReferencePath:
                                             + self.smoothing_distance + 1]))
             wp_ys.append(np.mean(wp_y[wp_id - self.smoothing_distance:wp_id
                                             + self.smoothing_distance + 1]))
-        #wp_xs += wp_x[-self.smoothing_distance:]
-        #wp_ys += wp_y[-self.smoothing_distance:]
 
         # Construct list of waypoint objects
         waypoints = list(zip(wp_xs, wp_ys))
@@ -434,7 +405,6 @@ class ReferencePath:
         wp_lb_y = np.array([wp.static_border_cells[1][1] for wp in self.waypoints])
 
         # Plot waypoints
-
         # colors = [wp.v_ref for wp in self.waypoints]
         plt.scatter(wp_x, wp_y, c=WAYPOINTS, s=10)
 
@@ -680,22 +650,28 @@ class ReferencePath:
 
 if __name__ == '__main__':
 
-    # Select Path | 'Race' or 'Q'
-    path = 'Q'
+    # Select Track | 'Real_Track' or 'Sim_Track'
+    path = 'Sim_Track'
 
-    # Create Map
-    if path == 'Race':
-        map = Map(file_path='map_race.png', origin=[-1, -2], resolution=0.005)
+    if path == 'Sim_Track':
+
+        # Load map file
+        map = Map(file_path='sim_map.png', origin=[-1, -2], resolution=0.005)
+
         # Specify waypoints
         wp_x = [-0.75, -0.25, -0.25, 0.25, 0.25, 1.25, 1.25, 0.75, 0.75, 1.25,
                 1.25, -0.75, -0.75, -0.25]
         wp_y = [-1.5, -1.5, -0.5, -0.5, -1.5, -1.5, -1, -1, -0.5, -0.5, 0, 0,
                 -1.5, -1.5]
+
         # Specify path resolution
         path_resolution = 0.05  # m / wp
+
+        # Create reference path
         reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
                      smoothing_distance=5, max_width=0.15,
                                        circular=True)
+
         # Add obstacles
         obs1 = Obstacle(cx=0.0, cy=0.0, radius=0.05)
         obs2 = Obstacle(cx=-0.8, cy=-0.5, radius=0.08)
@@ -708,19 +684,26 @@ if __name__ == '__main__':
         reference_path.map.add_obstacles([obs1, obs2, obs3, obs4, obs5, obs6, obs7,
                                       obs8])
 
-    elif path == 'Q':
-        map = Map(file_path='map_floor2.png')
-        # wp_x = [-9.169, 11.9, 7.3, -6.95]
-        # wp_y = [-15.678, 10.9, 14.5, -3.31]
+    elif path == 'Real_Track':
+
+        # Load map file
+        map = Map(file_path='real_map.png', origin=(-30.0, -24.0),
+                  resolution=0.06)
+
+        # Specify waypoints
         wp_x = [-1.62, -6.04, -6.6, -5.36, -2.0, 5.9,
                 11.9, 7.3, 0.0, -1.62]
         wp_y = [3.24, -1.4, -3.0, -5.36, -6.65, 3.5,
                 10.9, 14.5, 5.2, 3.24]
+
         # Specify path resolution
         path_resolution = 0.2  # m / wp
+
+        # Create reference path
         reference_path = ReferencePath(map, wp_x, wp_y, path_resolution,
                                        smoothing_distance=5, max_width=2.0,
                                        circular=True)
+
         # Add obstacles and bounds to map
         cone1 = Obstacle(-5.9, -2.9, 0.2)
         cone2 = Obstacle(-2.3, -5.9, 0.2)
@@ -731,16 +714,11 @@ if __name__ == '__main__':
         table3 = Obstacle(4.30, 3.22, 0.2)
         obstacle_list = [cone1, cone2, cone3, cone4, table1, table2, table3]
         map.add_obstacles(obstacle_list)
-        # bound1 = ((2.25, -2.5), (1.55, 1.0))
-        # bound2 = ((1.56, 1.25), (3.64, 0.75))
-        # bound3 = ((4.46, 3.06), (7.51, 6.9))
-        # bound4 = ((4.18, 3.03), (1.95, 3.26))
-        # bound5 = ((-3.26, -0.21), (7.29, 13.16))
+
         bound1 = ((-0.02, -2.72), (1.5, 1.0))
         bound2 = ((4.43, 3.07), (1.5, 1.0))
         bound3 = ((4.43, 3.07), (7.5, 6.93))
         bound4 = ((7.28, 13.37), (-3.32, -0.12))
-
         boundary_list = [bound1, bound2, bound3, bound4]
         map.add_boundary(boundary_list)
 

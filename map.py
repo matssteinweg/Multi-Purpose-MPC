@@ -3,11 +3,46 @@ import matplotlib.pyplot as plt
 from skimage.morphology import remove_small_holes
 from PIL import Image
 from skimage.draw import line_aa
+import matplotlib.patches as plt_patches
 
+# Colors
+OBSTACLE = '#2E4053'
+
+
+############
+# Obstacle #
+############
+
+class Obstacle:
+    def __init__(self, cx, cy, radius):
+        """
+        Constructor for a circular obstacle to be placed on a map.
+        :param cx: x coordinate of center of obstacle in world coordinates
+        :param cy: y coordinate of center of obstacle in world coordinates
+        :param radius: radius of circular obstacle in m
+        """
+        self.cx = cx
+        self.cy = cy
+        self.radius = radius
+
+    def show(self):
+        """
+        Display obstacle on current axis.
+        """
+
+        # Draw circle
+        circle = plt_patches.Circle(xy=(self.cx, self.cy), radius=
+                                        self.radius, color=OBSTACLE, zorder=20)
+        ax = plt.gca()
+        ax.add_patch(circle)
+
+
+#######
+# Map #
+#######
 
 class Map:
-    def __init__(self, file_path, threshold_occupied=100,
-                 origin=(-30.0, -24.0), resolution=0.06):
+    def __init__(self, file_path, origin, resolution, threshold_occupied=100):
         """
         Constructor for map object. Map contains occupancy grid map data of
         environment as well as meta information.
@@ -65,6 +100,19 @@ class Map:
 
         return x, y
 
+    def process_map(self):
+        """
+        Process raw map image. Binarization and removal of small holes in map.
+        """
+
+        # Binarization using specified threshold
+        # 1 corresponds to free, 0 to occupied
+        self.data = np.where(self.data >= self.threshold_occupied, 1, 0)
+
+        # Remove small holes in map corresponding to spurious measurements
+        self.data = remove_small_holes(self.data, area_threshold=5,
+                                       connectivity=8).astype(np.int8)
+
     def add_obstacles(self, obstacles):
         """
         Add obstacles to the map.
@@ -106,21 +154,9 @@ class Map:
             for x, y in zip(path_x, path_y):
                 self.data[y, x] = 0
 
-    def process_map(self):
-        """
-        Process raw map image. Binarization and removal of small holes in map.
-        """
-
-        # Binarization using specified threshold
-        # 1 corresponds to free, 0 to occupied
-        self.data = np.where(self.data >= self.threshold_occupied, 1, 0)
-
-        # Remove small holes in map corresponding to spurious measurements
-        self.data = remove_small_holes(self.data, area_threshold=5,
-                                       connectivity=8).astype(np.int8)
-
 
 if __name__ == '__main__':
-    map = Map('map_floor2.png')
-    plt.imshow(map.data, cmap='gray')
+    map = Map('real_map.png')
+    # map = Map('sim_map.png')
+    plt.imshow(np.flipud(map.data), cmap='gray')
     plt.show()

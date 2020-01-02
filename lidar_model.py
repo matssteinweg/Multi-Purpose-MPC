@@ -132,7 +132,7 @@ class LidarModel:
 if __name__ == '__main__':
 
     # Create Map
-    map = Map('map_floor2.png')
+    map = Map('real_map.png')
     plt.imshow(map.data, cmap='gray',
                extent=[map.origin[0], map.origin[0] +
                        map.width * map.resolution,
