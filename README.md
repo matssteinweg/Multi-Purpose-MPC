@@ -20,7 +20,7 @@ The developed algorithm was tested on a 1:10 RC car provided by [KTH Smart Mobil
 
 The controller is implemented in a way that enables its applicability to all three tasks by merely tuning the weight matrices of the underlying optimization problem. The illustration below shows the obstacle avoidance task in simulation.
 
-The rest of this readme is structured as follows. In [Section 2](##Components) we will present an overview of the entire system and discuss all fundamental components of the implementation in detail. In [Section 3](##How-To) we will provide guidelines for using the implementation in simulation and practice. [Section 4](##Limitations) will be dedicated to analyzing limitations of the current version of the controller and outline potential extensions of the implementation.
+The rest of this readme is structured as follows. In [Section 2](#implementation-details) we will present an overview of the entire system and discuss all fundamental components of the implementation in detail. In [Section 3](#how-to) we will provide guidelines for using the implementation in simulation and practice. [Section 4](#limitations-and-outlook) will be dedicated to analyzing limitations of the current version of the controller and outline potential extensions of the implementation.
 
 <p align="center">
 <img src="Images/animation.gif">
