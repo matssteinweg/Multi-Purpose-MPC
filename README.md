@@ -34,9 +34,9 @@ The multi-purpose control framework presented in this repository consists of fou
 <img src="Images/MPC_Framework.png">
 </p>
 
-<a>
+<p align="center">
   <img src="Images/MPC_Framework.svg" width="100%" height="800">
-</a>
+</p>
 
 ### Map 
 
