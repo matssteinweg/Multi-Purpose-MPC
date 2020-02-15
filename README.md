@@ -34,8 +34,8 @@ The multi-purpose control framework presented in this repository consists of fou
 <img src="Images/MPC_Framework.png">
 </p>
 
-<a href="https://olivermak.es/">
-  <img src="Images/MPC_Framework.svg" width="100%" height="144">
+<a>
+  <img src="Images/MPC_Framework.svg" width="100%" height="800">
 </a>
 
 ### Map 
