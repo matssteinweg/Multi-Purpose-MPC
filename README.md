@@ -34,6 +34,10 @@ The multi-purpose control framework presented in this repository consists of fou
 <img src="Images/MPC_Framework.png">
 </p>
 
+<a href="https://olivermak.es/">
+  <img src="Images/MPC_Framework.svg" width="100%" height="144">
+</a>
+
 ### Map 
 
 The Map class is a handler for the Occupancy Grid Map of the environment. The map is represented as a binary array classifying each cell as either free or occupied. Moreover, the Map class can act as a wrapper around a potential obstacle detection algorithm. By incorporating e.g. LiDAR measurements and updating the Occupancy Grid Map accordingly, new information about the drivable area can be passed to the Reference Path object.
