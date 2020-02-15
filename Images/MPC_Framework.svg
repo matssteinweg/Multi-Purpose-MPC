@@ -173,7 +173,7 @@
         <g transform="matrix(1, 0, 0, 1, 0, 24)">
           <title>Path2MPC</title>
           <path d="M 618.011 272.502 H 695.815 L 695.815 267.432 L 717.956 274.919 L 695.815 282.407 L 695.815 277.337 H 618.011 V 272.502 Z" style="" transform="matrix(-0.005021, 0.999987, -0.999987, -0.005021, 727.22052, -332.314423)" bx:shape="arrow 618.011 267.432 99.945 14.975 4.835 22.141 0 1@d235ef07"/>
-          <text transform="matrix(1, 0, 0, 1, -162.615112, 61.787788)" style="font-family: &quot;CMU Serif&quot;; font-size: 11px; text-anchor: middle; text-transform: capitalize; white-space: pre;"><tspan x="533.619" y="270.13">State &amp; Input Reference</tspan><tspan x="533.619" dy="1em">​</tspan><tspan>State Constraints</tspan></text>
+          <text transform="matrix(1, 0, 0, 1, -175.253586, 60.703644)" style="font-family: &quot;CMU Serif&quot;; font-size: 14px; text-anchor: middle; text-transform: capitalize; white-space: pre;"><tspan x="533.619" y="270.13">State &amp; Input Reference</tspan><tspan x="533.619" dy="1em">​</tspan><tspan>State Constraints</tspan></text>
         </g>
       </g>
       <g transform="matrix(1, 0, 0, -1, -43.774796, 260.681854)">
@@ -182,9 +182,9 @@
       </g>
       <g>
         <title>Map_Path</title>
-        <text transform="matrix(1, 0, 0, 1, -414.0271, -134.005188)" style="font-family: &quot;CMU Serif&quot;; font-size: 11px; text-transform: capitalize; white-space: pre; text-anchor: middle;" x="533.6190185546875" y="270.1300048828125">Dynamic Drivable<tspan x="533.6190185546875" dy="1em">​</tspan>Area Information</text>
+        <text transform="matrix(1, 0, 0, 1, -438.099457, -145.453125)" style="font-family: &quot;CMU Serif&quot;; font-size: 17px; text-anchor: middle; text-transform: capitalize; white-space: pre;"><tspan x="533.619" y="270.13">Dynamic Drivable</tspan><tspan x="533.619" dy="1em">​</tspan><tspan>Area Information</tspan></text>
         <path d="M -618.01 -262.362 H -344.613 L -344.613 -267.432 L -322.472 -259.945 L -344.613 -252.457 L -344.613 -257.527 H -618.01 V -262.362 Z" style="" transform="matrix(0.707153, -0.707061, -0.707061, -0.707153, 326.614446, -362.32609)" bx:shape="arrow -618.01 -267.432 295.538 14.975 4.835 22.141 0 1@ac251b6d"/>
-        <text style="font-family: &quot;CMU Serif&quot;; font-size: 11px; text-anchor: middle; text-transform: capitalize; white-space: pre;" x="619.846" y="136.203">State Reference</text>
+        <text style="font-family: &quot;CMU Serif&quot;; font-size: 17px; text-anchor: middle; text-transform: capitalize; white-space: pre;" x="650.683" y="132.682">State Reference</text>
       </g>
       <g transform="matrix(1, 0, 0, 1, 0, -18.251724)">
         <title>MPC_Model</title>
