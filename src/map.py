@@ -156,7 +156,7 @@ class Map:
 
 
 if __name__ == '__main__':
-    map = Map('real_map.png')
-    # map = Map('sim_map.png')
+    map = Map('maps/real_map.png')
+    # map = Map('maps/sim_map.png')
     plt.imshow(np.flipud(map.data), cmap='gray')
     plt.show()

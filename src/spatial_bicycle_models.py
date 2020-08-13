@@ -1,12 +1,10 @@
 import numpy as np
 from abc import abstractmethod
-
 try:
     from abc import ABC
 except:
     # for Python 2.7
     from abc import ABCMeta
-
 
     class ABC(object):
         __metaclass__ = ABCMeta

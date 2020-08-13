@@ -17,7 +17,8 @@ if __name__ == '__main__':
     if sim_mode == 'Sim_Track':
 
         # Load map file
-        map = Map(file_path='sim_map.png', origin=[-1, -2], resolution=0.005)
+        map = Map(file_path='maps/sim_map.png', origin=[-1, -2],
+                  resolution=0.005)
 
         # Specify waypoints
         wp_x = [-0.75, -0.25, -0.25, 0.25, 0.25, 1.25, 1.25, 0.75, 0.75, 1.25,
@@ -34,7 +35,7 @@ if __name__ == '__main__':
                                        circular=True)
 
         # Add obstacles
-        use_obstacles = False
+        use_obstacles = True
         if use_obstacles:
             obs1 = Obstacle(cx=0.0, cy=0.0, radius=0.05)
             obs2 = Obstacle(cx=-0.8, cy=-0.5, radius=0.08)
@@ -50,14 +51,14 @@ if __name__ == '__main__':
 
         # Instantiate motion model
         car = BicycleModel(length=0.12, width=0.06,
-                            reference_path=reference_path, Ts=0.05)
+                           reference_path=reference_path, Ts=0.05)
 
     # Real-World Environment. Track used for testing the algorithm on a 1:12
     # RC car.
     elif sim_mode == 'Real_Track':
 
         # Load map file
-        map = Map(file_path='real_map.png', origin=(-30.0, -24.0),
+        map = Map(file_path='maps/real_map.png', origin=(-30.0, -24.0),
                   resolution=0.06)
 
         # Specify waypoints
@@ -132,18 +133,18 @@ if __name__ == '__main__':
     # Until arrival at end of path
     while car.s < reference_path.length:
 
-        # get control signals
+        # Get control signals
         u = mpc.get_control()
 
-        # drive car
+        # Simulate car
         car.drive(u)
 
-        # log
+        # Log car state
         x_log.append(car.temporal_state.x)
         y_log.append(car.temporal_state.y)
         v_log.append(u[0])
 
-        # Increase simulation time
+        # Increment simulation time
         t += car.Ts
 
         # Plot path and drivable area

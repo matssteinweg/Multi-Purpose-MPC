@@ -118,7 +118,7 @@ class ReferencePath:
         # Number of waypoints
         n_wp = [int(np.sqrt((wp_x[i + 1] - wp_x[i]) ** 2 +
                             (wp_y[i + 1] - wp_y[i]) ** 2) /
-            self.resolution) for i in range(len(wp_x) - 1)]
+                self.resolution) for i in range(len(wp_x) - 1)]
 
         # Construct waypoints with specified resolution
         gp_x, gp_y = wp_x[-1], wp_y[-1]
@@ -656,7 +656,7 @@ if __name__ == '__main__':
     if path == 'Sim_Track':
 
         # Load map file
-        map = Map(file_path='sim_map.png', origin=[-1, -2], resolution=0.005)
+        map = Map(file_path='maps/sim_map.png', origin=[-1, -2], resolution=0.005)
 
         # Specify waypoints
         wp_x = [-0.75, -0.25, -0.25, 0.25, 0.25, 1.25, 1.25, 0.75, 0.75, 1.25,
@@ -687,7 +687,7 @@ if __name__ == '__main__':
     elif path == 'Real_Track':
 
         # Load map file
-        map = Map(file_path='real_map.png', origin=(-30.0, -24.0),
+        map = Map(file_path='maps/real_map.png', origin=(-30.0, -24.0),
                   resolution=0.06)
 
         # Specify waypoints
@@ -727,8 +727,9 @@ if __name__ == '__main__':
         print('Invalid path!')
         exit(1)
 
-    ub, lb, border_cells = reference_path.update_path_constraints(0,
-                                    reference_path.n_waypoints, 0.1, 0.01)
+    ub, lb, border_cells = \
+        reference_path.update_path_constraints(0, reference_path.n_waypoints,
+                                               0.1, 0.01)
     SpeedProfileConstraints = {'a_min': -0.1, 'a_max': 0.5,
                                'v_min': 0, 'v_max': 1.0, 'ay_max': 4.0}
     reference_path.compute_speed_profile(SpeedProfileConstraints)
