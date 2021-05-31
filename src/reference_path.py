@@ -1,4 +1,5 @@
 import numpy as np
+import numpy.ma as ma
 import math
 from map import Map, Obstacle
 from skimage.draw import line_aa
@@ -251,38 +252,22 @@ class ReferencePath:
         :return: min_width to border and corresponding cell
         """
 
-        # Get neighboring cells of orthogonal cell (account for
-        # discretization inaccuracy)
-        tn_x, tn_y = [], []
-        for i in range(-1, 2, 1):
-            for j in range(-1, 2, 1):
-                tn_x.append(t_x+i)
-                tn_y.append(t_y+j)
-
+        min_width = max_width
         # Get pixel coordinates of waypoint
         wp_x, wp_y = self.map.w2m(wp.x, wp.y)
-
-        # Get Bresenham paths to all possible cells
-        paths = []
-        for t_x, t_y in zip(tn_x, tn_y):
-            x_list, y_list, _ = line_aa(wp_x, wp_y, t_x, t_y)
-            paths.append(zip(x_list, y_list))
-
-        # Compute minimum distance to border cell
-        min_width = max_width
-        # map inspected cell to world coordinates
-        min_cell = self.map.m2w(t_x, t_y)
-        for path in paths:
-            for cell in path:
-                t_x, t_y = cell[0], cell[1]
-                # If path goes through occupied cell
-                if self.map.data[t_y, t_x] == 0:
-                    # Get world coordinates
-                    c_x, c_y = self.map.m2w(t_x, t_y)
-                    cell_dist = np.sqrt((wp.x - c_x) ** 2 + (wp.y - c_y) ** 2)
-                    if cell_dist < min_width:
-                        min_width = cell_dist
-                        min_cell = (c_x, c_y)
+        path_x = np.array([])
+        path_y = np.array([])
+        for i in range(-1, 2, 1):
+            for j in range(-1, 2, 1):
+                x_list, y_list, _ = line_aa(wp_x, wp_y, t_x+i, t_y+j)
+                occupied_index = self.map.data[y_list, x_list] == 0
+                x_list = ma.masked_array(x_list, mask=occupied_index).compressed()
+                y_list = ma.masked_array(y_list, mask=occupied_index).compressed()
+                path_x = np.append(path_x, x_list)
+                path_y = np.append(path_y, y_list)
+        min_index = np.argmin(np.hypot(path_x - t_x, path_y - t_y))
+        min_cell = self.map.m2w(path_x[min_index], path_y[min_index])
+        min_width = np.hypot(wp.x - min_cell[0], wp.y - min_cell[1])
 
         return min_width, min_cell
 
