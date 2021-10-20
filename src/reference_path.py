@@ -227,7 +227,8 @@ class ReferencePath:
                 t_x, t_y = self.map.w2m(wp.x + max_width * np.cos(angle), wp.y
                                         + max_width * np.sin(angle))
                 # Compute distance to orthogonal cell on path border
-                b_value, b_cell = self._get_min_width(wp, t_x, t_y, max_width)
+                b_value, b_cell = self._get_min_width(wp, t_x, t_y)
+
                 # Add information to list for current waypoint
                 width_info.append(b_value)
                 width_info.append(b_cell)
@@ -240,49 +241,36 @@ class ReferencePath:
             wp.static_border_cells = (width_info[1], width_info[3])
             wp.dynamic_border_cells = (width_info[1], width_info[3])
 
-    def _get_min_width(self, wp, t_x, t_y, max_width):
+    def _get_min_width(self, wp, t_x, t_y):
         """
         Compute the minimum distance between the current waypoint and the
         orthogonal cell on the border of the path
         :param wp: current waypoint
         :param t_x: x coordinate of border cell in map coordinates
         :param t_y: y coordinate of border cell in map coordinates
-        :param max_width: maximum path width in m
         :return: min_width to border and corresponding cell
         """
-
-        # Get neighboring cells of orthogonal cell (account for
-        # discretization inaccuracy)
-        tn_x, tn_y = [], []
-        for i in range(-1, 2, 1):
-            for j in range(-1, 2, 1):
-                tn_x.append(t_x+i)
-                tn_y.append(t_y+j)
 
         # Get pixel coordinates of waypoint
         wp_x, wp_y = self.map.w2m(wp.x, wp.y)
 
-        # Get Bresenham paths to all possible cells
-        paths = []
-        for t_x, t_y in zip(tn_x, tn_y):
-            x_list, y_list, _ = line_aa(wp_x, wp_y, t_x, t_y)
-            paths.append(zip(x_list, y_list))
+        # Repeat for neighboring cells of orthogonal cell (account for
+        # discretization inaccuracy)
+        path_x = np.array([])  # store border cells if path goes through them
+        path_y = np.array([])
+        for i in range(-1, 2, 1):
+            for j in range(-1, 2, 1):
+                x_list, y_list, _ = line_aa(wp_x, wp_y, t_x + i, t_y + j)
 
-        # Compute minimum distance to border cell
-        min_width = max_width
-        # map inspected cell to world coordinates
-        min_cell = self.map.m2w(t_x, t_y)
-        for path in paths:
-            for cell in path:
-                t_x, t_y = cell[0], cell[1]
-                # If path goes through occupied cell
-                if self.map.data[t_y, t_x] == 0:
-                    # Get world coordinates
-                    c_x, c_y = self.map.m2w(t_x, t_y)
-                    cell_dist = np.sqrt((wp.x - c_x) ** 2 + (wp.y - c_y) ** 2)
-                    if cell_dist < min_width:
-                        min_width = cell_dist
-                        min_cell = (c_x, c_y)
+                occupied = (self.map.data[y_list, x_list] == 0)
+                path_x = np.append(path_x, x_list[occupied])
+                path_y = np.append(path_y, y_list[occupied])
+
+        c_x, c_y = self.map.m2w(path_x, path_y)
+        widths = np.hypot(wp.x - c_x, wp.y - c_y)
+        min_index = np.argmin(widths)
+        min_width = widths[min_index]
+        min_cell = (c_x[min_index], c_y[min_index])
 
         return min_width, min_cell
 
